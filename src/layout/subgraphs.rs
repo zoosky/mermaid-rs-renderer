@@ -1321,6 +1321,8 @@ pub(super) fn build_subgraph_layouts(
     config: &LayoutConfig,
 ) -> Vec<SubgraphLayout> {
     let mut subgraphs = Vec::new();
+    // Maps graph.subgraphs index -> local subgraphs index (None if skipped).
+    let mut graph_to_local: Vec<Option<usize>> = Vec::with_capacity(graph.subgraphs.len());
     for sub in &graph.subgraphs {
         let mut min_x = f32::MAX;
         let mut min_y = f32::MAX;
@@ -1337,6 +1339,7 @@ pub(super) fn build_subgraph_layouts(
         }
 
         if min_x == f32::MAX {
+            graph_to_local.push(None);
             continue;
         }
 
@@ -1360,6 +1363,7 @@ pub(super) fn build_subgraph_layouts(
         let width = base_width.max(min_label_width);
         let extra_width = width - base_width;
 
+        graph_to_local.push(Some(subgraphs.len()));
         subgraphs.push(SubgraphLayout {
             label: sub.label.clone(),
             label_block,
@@ -1375,8 +1379,9 @@ pub(super) fn build_subgraph_layouts(
 
     if subgraphs.len() > 1 {
         let tree = SubgraphTree::build(graph);
-        let mut all_descendants: Vec<Vec<usize>> = vec![Vec::new(); subgraphs.len()];
-        let mut order: Vec<usize> = Vec::with_capacity(subgraphs.len());
+        let n = graph.subgraphs.len();
+        let mut all_descendants: Vec<Vec<usize>> = vec![Vec::new(); n];
+        let mut order: Vec<usize> = Vec::with_capacity(n);
         let mut stack: Vec<(usize, bool)> =
             tree.top_level.iter().rev().map(|&i| (i, false)).collect();
         while let Some((idx, visited)) = stack.pop() {
@@ -1400,20 +1405,26 @@ pub(super) fn build_subgraph_layouts(
         }
 
         for &i in &order {
+            let Some(local_i) = graph_to_local[i] else {
+                continue;
+            };
             for &j in &all_descendants[i] {
                 if is_region_subgraph(&graph.subgraphs[j]) {
                     continue;
                 }
+                let Some(local_j) = graph_to_local[j] else {
+                    continue;
+                };
                 let pad = if graph.kind == crate::ir::DiagramKind::State {
                     (theme.font_size * 1.8).max(24.0)
                 } else {
                     12.0
                 };
                 let (child_x, child_y, child_w, child_h) = {
-                    let child = &subgraphs[j];
+                    let child = &subgraphs[local_j];
                     (child.x, child.y, child.width, child.height)
                 };
-                let parent = &mut subgraphs[i];
+                let parent = &mut subgraphs[local_i];
                 let min_x = parent.x.min(child_x - pad);
                 let min_y = parent.y.min(child_y - pad);
                 let max_x = (parent.x + parent.width).max(child_x + child_w + pad);
