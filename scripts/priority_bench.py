@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # Fallback only; default scoring derives weights programmatically from fixture data.
 MANUAL_WEIGHTS = {
     "edge_crossings": 8.0,
+    "edge_crossings_per_edge": 12.0,
     "edge_node_crossings": 10.0,
     "edge_node_crossing_length_per_edge": 0.8,
     "subgraph_boundary_intrusion_ratio": 26.0,
@@ -42,12 +43,20 @@ MANUAL_WEIGHTS = {
     "edge_overlap_length": 1.0,
     "edge_detour_penalty": 35.0,
     "space_efficiency_penalty": 260.0,
+    "wasted_space_large_ratio": 320.0,
+    "space_efficiency_large_penalty": 340.0,
+    "component_gap_large_ratio": 200.0,
     "margin_imbalance_ratio": 130.0,
     "edge_length_per_node": 0.4,
+    "edge_label_owned_path_too_close_ratio": 52.0,
+    "edge_label_owned_path_optimal_gap_penalty": 46.0,
+    "edge_label_owned_path_gap_bad_ratio": 34.0,
+    "edge_label_owned_mapping_ratio": 18.0,
 }
 
 DEFAULT_PRIORITY_METRICS = [
     "edge_crossings",
+    "edge_crossings_per_edge",
     "edge_node_crossings",
     "edge_node_crossing_length_per_edge",
     "subgraph_boundary_intrusion_ratio",
@@ -70,8 +79,11 @@ DEFAULT_PRIORITY_METRICS = [
     "edge_detour_penalty",
     "wasted_space_ratio",
     "space_efficiency_penalty",
+    "wasted_space_large_ratio",
+    "space_efficiency_large_penalty",
     "margin_imbalance_ratio",
     "component_gap_ratio",
+    "component_gap_large_ratio",
     "component_balance_penalty",
     "content_center_offset_ratio",
     "content_aspect_elongation",
@@ -84,9 +96,9 @@ DEFAULT_PRIORITY_METRICS = [
     "label_out_of_bounds_count",
     "label_out_of_bounds_area",
     "label_out_of_bounds_ratio",
-    "edge_label_owned_path_non_touch_ratio",
+    "edge_label_owned_path_too_close_ratio",
+    "edge_label_owned_path_optimal_gap_penalty",
     "edge_label_owned_path_gap_bad_ratio",
-    "edge_label_owned_path_clearance_penalty",
     "edge_label_owned_anchor_offset_bad_ratio",
     "edge_label_owned_anchor_offset_px_mean",
     "edge_label_owned_mapping_ratio",
@@ -422,7 +434,24 @@ def benchmark_fixture(
         metrics = layout_score_mod.compute_metrics(data, nodes, edges)
         metrics["score"] = layout_score_mod.weighted_score(metrics)
         try:
-            label_metrics = quality_bench_mod.compute_label_metrics(svg_path, nodes, edges)
+            diagram_kind = quality_bench_mod.detect_diagram_kind(fixture)
+            allow_fallback_labels = quality_bench_mod.fixture_has_edge_label(
+                fixture, diagram_kind
+            )
+            expected_sequence_labels = (
+                quality_bench_mod.expected_sequence_label_count(fixture)
+                if diagram_kind == "sequence"
+                else None
+            )
+            _, _, svg_edges = quality_bench_mod.load_mermaid_svg_graph(svg_path)
+            label_metrics = quality_bench_mod.compute_label_metrics(
+                svg_path,
+                nodes,
+                svg_edges,
+                diagram_kind=diagram_kind,
+                allow_fallback_candidates=allow_fallback_labels,
+                expected_edge_label_count=expected_sequence_labels,
+            )
             metrics.update(label_metrics)
         except Exception:
             # Keep benchmark resilient if label parsing fails on a fixture.
@@ -463,6 +492,7 @@ def print_priorities(results: list[dict[str, Any]], top_n: int) -> None:
             f"pain={priority['pain_score']:.3f}  "
             f"layout={timing['layout_ms']:.2f}ms  "
             f"cross={metrics['edge_crossings']}  "
+            f"cross/edge={metrics.get('edge_crossings_per_edge', 0.0):.2f}  "
             f"edge-node={metrics['edge_node_crossings']}  "
             f"overlap={metrics['node_overlap_count']}  "
             f"bends={metrics['edge_bends']}  "
@@ -470,10 +500,14 @@ def print_priorities(results: list[dict[str, Any]], top_n: int) -> None:
             f"lbl-overlap={metrics.get('label_overlap_count', 0)}  "
             f"lbl-edge={metrics.get('label_edge_overlap_count', 0)}  "
             f"lbl-oob={metrics.get('label_out_of_bounds_count', 0)}  "
-            f"lbl-owned-touch={metrics.get('edge_label_owned_path_touch_ratio', 0.0):.2f}  "
+            f"lbl-owned-too-close={metrics.get('edge_label_owned_path_too_close_ratio', 0.0):.2f}  "
+            f"lbl-owned-opt={metrics.get('edge_label_owned_path_optimal_gap_score_mean', 0.0):.2f}  "
             f"lbl-owned-map={metrics.get('edge_label_owned_mapping_ratio', 0.0):.2f}  "
             f"waste={metrics.get('wasted_space_ratio', 0.0):.2f}  "
+            f"waste-large={metrics.get('wasted_space_large_ratio', 0.0):.2f}  "
             f"comp-gap={metrics.get('component_gap_ratio', 0.0):.2f}  "
+            f"comp-gap-large={metrics.get('component_gap_large_ratio', 0.0):.2f}  "
+            f"space-large-w={metrics.get('large_diagram_space_weight', 0.0):.2f}  "
             f"fill={metrics.get('content_fill_ratio', 0.0):.2f}  "
             f"detour={metrics.get('avg_edge_detour_ratio', 1.0):.2f}"
         )
@@ -493,13 +527,40 @@ def print_priorities(results: list[dict[str, Any]], top_n: int) -> None:
     by_space = sorted(
         ok,
         key=lambda entry: (
-            safe_num(entry["metrics"].get("wasted_space_ratio", 0.0))
-            + safe_num(entry["metrics"].get("component_gap_ratio", 0.0))
+            safe_num(entry["metrics"].get("wasted_space_large_ratio", 0.0))
+            + safe_num(entry["metrics"].get("space_efficiency_large_penalty", 0.0))
+            + safe_num(entry["metrics"].get("component_gap_large_ratio", 0.0))
             + safe_num(entry["metrics"].get("content_center_offset_ratio", 0.0))
             + safe_num(entry["metrics"].get("content_overflow_ratio", 0.0))
         ),
         reverse=True,
     )
+    print()
+    print(f"Top {top_n} by large-diagram unused space:")
+    by_large_space = sorted(
+        ok,
+        key=lambda entry: (
+            safe_num(entry["metrics"].get("wasted_space_large_ratio", 0.0))
+            + safe_num(entry["metrics"].get("space_efficiency_large_penalty", 0.0))
+            + safe_num(entry["metrics"].get("component_gap_large_ratio", 0.0))
+        ),
+        reverse=True,
+    )
+    for idx, item in enumerate(by_large_space[:top_n], start=1):
+        metrics = item["metrics"]
+        timing = item["timing"]
+        print(
+            f"{idx}. {item['fixture']}  "
+            f"large-space={safe_num(metrics.get('wasted_space_large_ratio', 0.0)) + safe_num(metrics.get('space_efficiency_large_penalty', 0.0)) + safe_num(metrics.get('component_gap_large_ratio', 0.0)):.3f}  "
+            f"wasted-large={metrics.get('wasted_space_large_ratio', 0.0):.3f}  "
+            f"space-pen-large={metrics.get('space_efficiency_large_penalty', 0.0):.3f}  "
+            f"comp-gap-large={metrics.get('component_gap_large_ratio', 0.0):.3f}  "
+            f"large-w={metrics.get('large_diagram_space_weight', 0.0):.2f}  "
+            f"raw-wasted={metrics.get('wasted_space_ratio', 0.0):.2f}  "
+            f"fill={metrics.get('content_fill_ratio', 0.0):.2f}  "
+            f"layout={timing['layout_ms']:.2f}ms"
+        )
+
     print()
     print(f"Top {top_n} by space inefficiency:")
     for idx, item in enumerate(by_space[:top_n], start=1):
@@ -507,11 +568,14 @@ def print_priorities(results: list[dict[str, Any]], top_n: int) -> None:
         timing = item["timing"]
         print(
             f"{idx}. {item['fixture']}  "
-            f"space_stress={safe_num(metrics.get('wasted_space_ratio', 0.0)) + safe_num(metrics.get('component_gap_ratio', 0.0)) + safe_num(metrics.get('content_center_offset_ratio', 0.0)) + safe_num(metrics.get('content_overflow_ratio', 0.0)):.3f}  "
-            f"wasted={metrics.get('wasted_space_ratio', 0.0):.2f}  "
-            f"comp-gap={metrics.get('component_gap_ratio', 0.0):.2f}  "
+            f"space_stress={safe_num(metrics.get('wasted_space_large_ratio', 0.0)) + safe_num(metrics.get('space_efficiency_large_penalty', 0.0)) + safe_num(metrics.get('component_gap_large_ratio', 0.0)) + safe_num(metrics.get('content_center_offset_ratio', 0.0)) + safe_num(metrics.get('content_overflow_ratio', 0.0)):.3f}  "
+            f"wasted-large={metrics.get('wasted_space_large_ratio', 0.0):.2f}  "
+            f"space-pen-large={metrics.get('space_efficiency_large_penalty', 0.0):.2f}  "
+            f"comp-gap-large={metrics.get('component_gap_large_ratio', 0.0):.2f}  "
             f"center={metrics.get('content_center_offset_ratio', 0.0):.2f}  "
             f"overflow={metrics.get('content_overflow_ratio', 0.0):.2f}  "
+            f"large-w={metrics.get('large_diagram_space_weight', 0.0):.2f}  "
+            f"wasted={metrics.get('wasted_space_ratio', 0.0):.2f}  "
             f"fill={metrics.get('content_fill_ratio', 0.0):.2f}  "
             f"imbalance={metrics.get('margin_imbalance_ratio', 0.0):.2f}  "
             f"layout={timing['layout_ms']:.2f}ms"

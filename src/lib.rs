@@ -459,5 +459,22 @@ mod tests {
             (tuned_ratio - target_ratio).abs() + 0.01 < (base_ratio - target_ratio).abs(),
             "expected preferred ratio to move viewBox ratio toward target (base={base_ratio:.3}, tuned={tuned_ratio:.3})"
         );
+        assert!(
+            (tuned_ratio - target_ratio).abs() < 0.05,
+            "expected preferred ratio to closely match target for simple flowcharts (target={target_ratio:.3}, got={tuned_ratio:.3})"
+        );
+    }
+
+    #[test]
+    fn test_preferred_aspect_ratio_handles_tall_targets() {
+        let input = "flowchart LR; A-->B-->C-->D-->E";
+        let target_ratio = 9.0 / 16.0;
+        let opts = RenderOptions::default().with_preferred_aspect_ratio(target_ratio);
+        let tuned_svg = render_with_options(input, opts).unwrap();
+        let tuned_ratio = parse_viewbox_ratio(&tuned_svg).expect("tuned viewBox ratio");
+        assert!(
+            (tuned_ratio - target_ratio).abs() < 0.05,
+            "expected tall preferred ratio to be respected (target={target_ratio:.3}, got={tuned_ratio:.3})"
+        );
     }
 }

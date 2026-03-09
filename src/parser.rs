@@ -1887,10 +1887,10 @@ fn parse_journey_diagram(input: &str) -> Result<ParseOutput> {
                 Some(node_label),
                 Some(crate::ir::NodeShape::Rectangle),
             );
-            if let Some(score) = score {
-                if let Some(node) = graph.nodes.get_mut(&node_id) {
-                    node.value = Some(score);
-                }
+            if let Some(score) = score
+                && let Some(node) = graph.nodes.get_mut(&node_id)
+            {
+                node.value = Some(score);
             }
             if let Some(idx) = current_section
                 && let Some(subgraph) = graph.subgraphs.get_mut(idx)
@@ -3775,15 +3775,15 @@ fn parse_architecture_diagram(input: &str) -> Result<ParseOutput> {
                         label: label.clone(),
                         nodes: Vec::new(),
                         direction: None,
-                        icon: icon,
+                        icon,
                     });
                     groups.insert(id, graph.subgraphs.len() - 1);
                 } else {
                     graph.ensure_node(&id, Some(label), Some(crate::ir::NodeShape::Rectangle));
-                    if let Some(icon_type) = icon {
-                        if let Some(node) = graph.nodes.get_mut(&id) {
-                            node.icon = Some(icon_type);
-                        }
+                    if let Some(icon_type) = icon
+                        && let Some(node) = graph.nodes.get_mut(&id)
+                    {
+                        node.icon = Some(icon_type);
                     }
                     if let Some(parent_id) = parent
                         && let Some(idx) = groups.get(&parent_id).copied()
@@ -3841,11 +3841,9 @@ fn parse_architecture_node(
     };
     let id_part = node_part.split('[').next().unwrap_or(node_part).trim();
     let icon = if let Some(paren_start) = id_part.find('(') {
-        if let Some(paren_end) = id_part.find(')') {
-            Some(id_part[paren_start + 1..paren_end].trim().to_string())
-        } else {
-            None
-        }
+        id_part
+            .find(')')
+            .map(|paren_end| id_part[paren_start + 1..paren_end].trim().to_string())
     } else {
         None
     };
@@ -5142,7 +5140,7 @@ fn mask_bracket_content(line: &str) -> String {
 /// Uses [`mask_bracket_content`] to blank out quoted/bracketed content while
 /// preserving byte positions, then splits on `&` positions found in the masked
 /// string but slices from the original — so `A["foo & bar"]` is never split.
-fn split_on_ampersand<'a>(input: &'a str) -> Vec<&'a str> {
+fn split_on_ampersand(input: &str) -> Vec<&str> {
     let masked = mask_bracket_content(input);
     let mut parts = Vec::new();
     let mut start = 0usize;
@@ -5921,11 +5919,18 @@ mod tests {
         let input = r#"flowchart LR
 A["reads artifacts & computes deps"] --> B"#;
         let parsed = parse_mermaid(input).unwrap();
-        assert_eq!(parsed.graph.nodes.len(), 2, "ampersand in label must not create extra nodes");
+        assert_eq!(
+            parsed.graph.nodes.len(),
+            2,
+            "ampersand in label must not create extra nodes"
+        );
         assert_eq!(parsed.graph.edges.len(), 1);
         assert!(parsed.graph.nodes.contains_key("A"));
         assert!(parsed.graph.nodes.contains_key("B"));
-        assert_eq!(parsed.graph.nodes["A"].label, "reads artifacts & computes deps");
+        assert_eq!(
+            parsed.graph.nodes["A"].label,
+            "reads artifacts & computes deps"
+        );
     }
 
     #[test]
@@ -5982,9 +5987,9 @@ A["foo & bar"] & B --> C"#;
         assert_eq!(parsed.graph.edges.len(), 4);
         assert_eq!(parsed.graph.edges[0].style, crate::ir::EdgeStyle::Dotted);
         assert_eq!(parsed.graph.edges[1].style, crate::ir::EdgeStyle::Thick);
-        assert_eq!(parsed.graph.edges[2].arrow_start, true);
-        assert_eq!(parsed.graph.edges[2].arrow_end, true);
-        assert_eq!(parsed.graph.edges[3].directed, false);
+        assert!(parsed.graph.edges[2].arrow_start);
+        assert!(parsed.graph.edges[2].arrow_end);
+        assert!(!parsed.graph.edges[3].directed);
         let style = parsed.graph.edge_styles.get(&0).unwrap();
         assert_eq!(style.label_color.as_deref(), Some("#f00"));
     }

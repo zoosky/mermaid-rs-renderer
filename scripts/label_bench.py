@@ -52,11 +52,15 @@ def summarize(results):
         "avg_touch_ratio": avg("edge_label_path_touch_ratio"),
         "avg_non_touch_ratio": avg("edge_label_path_non_touch_ratio"),
         "avg_clearance_score": avg("edge_label_path_clearance_score_mean"),
+        "avg_optimal_gap_score": avg("edge_label_path_optimal_gap_score_mean"),
+        "avg_too_close_ratio": avg("edge_label_path_too_close_ratio"),
         "avg_in_band_ratio": avg("edge_label_path_in_band_ratio"),
         "avg_bad_ratio": avg("edge_label_path_gap_bad_ratio"),
         "avg_owned_gap_mean": avg("edge_label_owned_path_gap_mean"),
         "avg_owned_touch_ratio": avg("edge_label_owned_path_touch_ratio"),
         "avg_owned_clearance_score": avg("edge_label_owned_path_clearance_score_mean"),
+        "avg_owned_optimal_gap_score": avg("edge_label_owned_path_optimal_gap_score_mean"),
+        "avg_owned_too_close_ratio": avg("edge_label_owned_path_too_close_ratio"),
         "avg_owned_mapping_ratio": avg("edge_label_owned_mapping_ratio"),
         "avg_owned_anchor_offset_bad_ratio": avg("edge_label_owned_anchor_offset_bad_ratio"),
         "avg_owned_anchor_offset_px": avg("edge_label_owned_anchor_offset_px_mean"),
@@ -99,7 +103,7 @@ def main():
     parser = argparse.ArgumentParser(
         description=(
             "Benchmark edge-label placement by path gap and clearance score "
-            "(touching path yields score 1)"
+            "(score peaks at diagram-specific optimal gap)"
         )
     )
     parser.add_argument(
@@ -233,11 +237,15 @@ def main():
                 f"avg_touch_ratio={summary['avg_touch_ratio']:.3f} "
                 f"avg_non_touch_ratio={summary['avg_non_touch_ratio']:.3f} "
                 f"avg_clearance_score={summary['avg_clearance_score']:.3f} "
+                f"avg_optimal_gap_score={summary['avg_optimal_gap_score']:.3f} "
+                f"avg_too_close_ratio={summary['avg_too_close_ratio']:.3f} "
                 f"avg_in_band_ratio={summary['avg_in_band_ratio']:.3f} "
                 f"avg_bad_ratio={summary['avg_bad_ratio']:.3f} "
                 f"avg_owned_gap_mean={summary['avg_owned_gap_mean']:.3f} "
                 f"avg_owned_touch_ratio={summary['avg_owned_touch_ratio']:.3f} "
                 f"avg_owned_clearance_score={summary['avg_owned_clearance_score']:.3f} "
+                f"avg_owned_optimal_gap_score={summary['avg_owned_optimal_gap_score']:.3f} "
+                f"avg_owned_too_close_ratio={summary['avg_owned_too_close_ratio']:.3f} "
                 f"avg_owned_mapping_ratio={summary['avg_owned_mapping_ratio']:.3f} "
                 f"avg_owned_anchor_offset_bad_ratio={summary['avg_owned_anchor_offset_bad_ratio']:.3f} "
                 f"avg_owned_anchor_offset_px={summary['avg_owned_anchor_offset_px']:.3f} "
@@ -257,11 +265,15 @@ def main():
                 f"avg_touch_ratio={summary['avg_touch_ratio']:.3f} "
                 f"avg_non_touch_ratio={summary['avg_non_touch_ratio']:.3f} "
                 f"avg_clearance_score={summary['avg_clearance_score']:.3f} "
+                f"avg_optimal_gap_score={summary['avg_optimal_gap_score']:.3f} "
+                f"avg_too_close_ratio={summary['avg_too_close_ratio']:.3f} "
                 f"avg_in_band_ratio={summary['avg_in_band_ratio']:.3f} "
                 f"avg_bad_ratio={summary['avg_bad_ratio']:.3f} "
                 f"avg_owned_gap_mean={summary['avg_owned_gap_mean']:.3f} "
                 f"avg_owned_touch_ratio={summary['avg_owned_touch_ratio']:.3f} "
                 f"avg_owned_clearance_score={summary['avg_owned_clearance_score']:.3f} "
+                f"avg_owned_optimal_gap_score={summary['avg_owned_optimal_gap_score']:.3f} "
+                f"avg_owned_too_close_ratio={summary['avg_owned_too_close_ratio']:.3f} "
                 f"avg_owned_mapping_ratio={summary['avg_owned_mapping_ratio']:.3f} "
                 f"avg_owned_anchor_offset_bad_ratio={summary['avg_owned_anchor_offset_bad_ratio']:.3f} "
                 f"avg_owned_anchor_offset_px={summary['avg_owned_anchor_offset_px']:.3f} "
@@ -281,22 +293,26 @@ def main():
             "edge_label_path_touch_ratio",
             "edge_label_path_non_touch_ratio",
             "edge_label_path_clearance_score_mean",
+            "edge_label_path_optimal_gap_score_mean",
+            "edge_label_path_too_close_ratio",
             "edge_label_path_in_band_ratio",
             "edge_label_path_gap_bad_ratio",
             "edge_label_owned_path_gap_mean",
             "edge_label_owned_path_touch_ratio",
             "edge_label_owned_path_clearance_score_mean",
+            "edge_label_owned_path_optimal_gap_score_mean",
+            "edge_label_owned_path_too_close_ratio",
             "edge_label_owned_mapping_ratio",
             "edge_label_owned_anchor_offset_bad_ratio",
             "edge_label_owned_anchor_offset_px_mean",
             "edge_label_owned_anchor_offset_score_mean",
         ]:
             higher_is_better = metric in {
-                "edge_label_path_touch_ratio",
                 "edge_label_path_clearance_score_mean",
+                "edge_label_path_optimal_gap_score_mean",
                 "edge_label_path_in_band_ratio",
-                "edge_label_owned_path_touch_ratio",
                 "edge_label_owned_path_clearance_score_mean",
+                "edge_label_owned_path_optimal_gap_score_mean",
                 "edge_label_owned_mapping_ratio",
                 "edge_label_owned_anchor_offset_score_mean",
             }

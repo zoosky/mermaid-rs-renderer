@@ -12,157 +12,31 @@
 <text x="400.0" y="25" text-anchor="middle" class="title">Render Time Comparison (log scale)</text>
 <line x1="120" y1="320.0" x2="650" y2="320.0" stroke="#ddd" stroke-dasharray="2,2"/>
 <text x="110" y="324.0" text-anchor="end" class="tick-label">1 ms</text>
-<line x1="120" y1="172.41045380791465" x2="650" y2="172.41045380791465" stroke="#ddd" stroke-dasharray="2,2"/>
-<text x="110" y="176.41045380791465" text-anchor="end" class="tick-label">10 ms</text>
-<rect x="121.62244897959184" y="224.80728988409246" width="3.785714285714285" height="95.19271011590754" class="bar-mmdr" rx="2"/>
-<text x="123.51530612244898" y="239.80728988409246" text-anchor="middle" class="bar-label">4.4</text>
-<text x="125.40816326530613" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 125.40816326530613 340)">flow small</text>
-<rect x="132.43877551020407" y="176.13482455825078" width="3.785714285714285" height="143.86517544174922" class="bar-mmdr" rx="2"/>
-<text x="134.3316326530612" y="191.13482455825078" text-anchor="middle" class="bar-label">9.4</text>
-<text x="136.22448979591834" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 136.22448979591834 340)">flow med</text>
-<rect x="143.25510204081633" y="69.06128692801005" width="3.785714285714285" height="250.93871307198995" class="bar-mmdr" rx="2"/>
-<text x="145.14795918367346" y="84.06128692801005" text-anchor="middle" class="bar-label">50.1</text>
-<text x="147.0408163265306" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 147.0408163265306 340)">flow large</text>
-<rect x="154.07142857142858" y="256.5284258493492" width="3.785714285714285" height="63.47157415065076" class="bar-mmdr" rx="2"/>
-<text x="155.96428571428572" y="271.5284258493492" text-anchor="middle" class="bar-label">2.7</text>
-<text x="157.85714285714286" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 157.85714285714286 340)">flow tiny</text>
-<rect x="164.8877551020408" y="65.98922901242094" width="3.785714285714285" height="254.01077098757906" class="bar-mmdr" rx="2"/>
-<text x="166.78061224489795" y="80.98922901242094" text-anchor="middle" class="bar-label">52.6</text>
-<text x="168.6734693877551" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 168.6734693877551 340)">flow ports heavy</text>
-<rect x="175.70408163265304" y="84.77811308272751" width="3.785714285714285" height="235.22188691727249" class="bar-mmdr" rx="2"/>
-<text x="177.59693877551018" y="99.77811308272751" text-anchor="middle" class="bar-label">39.2</text>
-<text x="179.48979591836732" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 179.48979591836732 340)">flow weave</text>
-<rect x="186.5204081632653" y="156.23500689423162" width="3.785714285714285" height="163.76499310576838" class="bar-mmdr" rx="2"/>
-<text x="188.41326530612244" y="171.23500689423162" text-anchor="middle" class="bar-label">12.9</text>
-<text x="190.30612244897958" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 190.30612244897958 340)">flow backedges subgraphs</text>
-<rect x="197.33673469387756" y="176.09028568282508" width="3.785714285714285" height="143.90971431717492" class="bar-mmdr" rx="2"/>
-<text x="199.2295918367347" y="191.09028568282508" text-anchor="middle" class="bar-label">9.4</text>
-<text x="201.12244897959184" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 201.12244897959184 340)">flow sparse components</text>
-<rect x="208.1530612244898" y="144.41450336272115" width="3.785714285714285" height="175.58549663727885" class="bar-mmdr" rx="2"/>
-<text x="210.04591836734693" y="159.41450336272115" text-anchor="middle" class="bar-label">15.5</text>
-<text x="211.93877551020407" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 211.93877551020407 340)">flow lanes crossfeed</text>
-<rect x="218.96938775510202" y="97.29232823593114" width="3.785714285714285" height="222.70767176406886" class="bar-mmdr" rx="2"/>
-<text x="220.86224489795916" y="112.29232823593114" text-anchor="middle" class="bar-label">32.3</text>
-<text x="222.7551020408163" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 222.7551020408163 340)">flow grid feedback</text>
-<rect x="229.78571428571428" y="116.26722875403729" width="3.785714285714285" height="203.7327712459627" class="bar-mmdr" rx="2"/>
-<text x="231.67857142857142" y="131.2672287540373" text-anchor="middle" class="bar-label">24.0</text>
-<text x="233.57142857142856" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 233.57142857142856 340)">flow fanout returns</text>
-<rect x="240.60204081632654" y="112.47467415882338" width="3.785714285714285" height="207.52532584117662" class="bar-mmdr" rx="2"/>
-<text x="242.49489795918367" y="127.47467415882338" text-anchor="middle" class="bar-label">25.5</text>
-<text x="244.3877551020408" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 244.3877551020408 340)">flow label collision</text>
-<rect x="251.41836734693877" y="155.42788081703682" width="3.785714285714285" height="164.57211918296318" class="bar-mmdr" rx="2"/>
-<text x="253.3112244897959" y="170.42788081703682" text-anchor="middle" class="bar-label">13.0</text>
-<text x="255.20408163265304" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 255.20408163265304 340)">flow nested clusters</text>
-<rect x="262.23469387755097" y="204.07044464285673" width="3.785714285714285" height="115.92955535714329" class="bar-mmdr" rx="2"/>
-<text x="264.12755102040813" y="219.07044464285673" text-anchor="middle" class="bar-label">6.1</text>
-<text x="266.02040816326524" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 266.02040816326524 340)">flow asymmetric components</text>
-<rect x="273.05102040816325" y="176.502410605953" width="3.785714285714285" height="143.497589394047" class="bar-mmdr" rx="2"/>
-<text x="274.9438775510204" y="191.502410605953" text-anchor="middle" class="bar-label">9.4</text>
-<text x="276.83673469387753" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 276.83673469387753 340)">flow parallel merges</text>
-<rect x="283.8673469387755" y="112.60208684659594" width="3.785714285714285" height="207.39791315340406" class="bar-mmdr" rx="2"/>
-<text x="285.76020408163265" y="127.60208684659594" text-anchor="middle" class="bar-label">25.4</text>
-<text x="287.65306122448976" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 287.65306122448976 340)">flow long edge labels</text>
-<rect x="294.6836734693877" y="135.7993592904982" width="3.785714285714285" height="184.2006407095018" class="bar-mmdr" rx="2"/>
-<text x="296.5765306122449" y="150.7993592904982" text-anchor="middle" class="bar-label">17.7</text>
-<text x="298.469387755102" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 298.469387755102 340)">flow selfloop bidi</text>
-<rect x="305.49999999999994" y="205.68923811126507" width="3.785714285714285" height="114.31076188873492" class="bar-mmdr" rx="2"/>
-<text x="307.3928571428571" y="220.68923811126507" text-anchor="middle" class="bar-label">6.0</text>
-<text x="309.2857142857142" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 309.2857142857142 340)">flow component packing</text>
-<rect x="316.3163265306122" y="176.55871047175395" width="3.785714285714285" height="143.44128952824605" class="bar-mmdr" rx="2"/>
-<text x="318.20918367346934" y="191.55871047175395" text-anchor="middle" class="bar-label">9.4</text>
-<text x="320.10204081632645" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 320.10204081632645 340)">flow direction conflict</text>
-<rect x="327.13265306122446" y="117.39914914610537" width="3.785714285714285" height="202.60085085389463" class="bar-mmdr" rx="2"/>
-<text x="329.0255102040816" y="132.39914914610537" text-anchor="middle" class="bar-label">23.6</text>
-<text x="330.91836734693874" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 330.91836734693874 340)">flow parallel label stack</text>
-<rect x="337.9489795918367" y="208.49778506524882" width="3.785714285714285" height="111.5022149347512" class="bar-mmdr" rx="2"/>
-<text x="339.84183673469386" y="223.49778506524882" text-anchor="middle" class="bar-label">5.7</text>
-<text x="341.73469387755097" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 341.73469387755097 340)">class med</text>
-<rect x="348.7653061224489" y="214.09782305967352" width="3.785714285714285" height="105.90217694032648" class="bar-mmdr" rx="2"/>
-<text x="350.6581632653061" y="229.09782305967352" text-anchor="middle" class="bar-label">5.2</text>
-<text x="352.5510204081632" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 352.5510204081632 340)">state med</text>
-<rect x="359.5816326530612" y="244.68306157547624" width="3.785714285714285" height="75.31693842452374" class="bar-mmdr" rx="2"/>
-<text x="361.4744897959184" y="259.68306157547624" text-anchor="middle" class="bar-label">3.2</text>
-<text x="363.3673469387755" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 363.3673469387755 340)">sequence med</text>
-<rect x="370.39795918367344" y="237.96407435132159" width="3.785714285714285" height="82.03592564867843" class="bar-mmdr" rx="2"/>
-<text x="372.2908163265306" y="252.96407435132159" text-anchor="middle" class="bar-label">3.6</text>
-<text x="374.1836734693877" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 374.1836734693877 340)">er med</text>
-<rect x="381.21428571428567" y="280.6317741292671" width="3.785714285714285" height="39.36822587073288" class="bar-mmdr" rx="2"/>
-<text x="383.10714285714283" y="295.6317741292671" text-anchor="middle" class="bar-label">1.8</text>
-<text x="384.99999999999994" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 384.99999999999994 340)">pie med</text>
-<rect x="392.0306122448979" y="278.31170818262484" width="3.785714285714285" height="41.68829181737518" class="bar-mmdr" rx="2"/>
-<text x="393.92346938775506" y="293.31170818262484" text-anchor="middle" class="bar-label">1.9</text>
-<text x="395.8163265306122" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 395.8163265306122 340)">mindmap med</text>
-<rect x="402.8469387755101" y="282.7585108403216" width="3.785714285714285" height="37.241489159678366" class="bar-mmdr" rx="2"/>
-<text x="404.7397959183673" y="297.7585108403216" text-anchor="middle" class="bar-label">1.8</text>
-<text x="406.6326530612244" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 406.6326530612244 340)">journey med</text>
-<rect x="413.6632653061224" y="278.271181248213" width="3.785714285714285" height="41.728818751787024" class="bar-mmdr" rx="2"/>
-<text x="415.5561224489796" y="293.271181248213" text-anchor="middle" class="bar-label">1.9</text>
-<text x="417.4489795918367" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 417.4489795918367 340)">timeline med</text>
-<rect x="424.47959183673464" y="272.10330181099647" width="3.785714285714285" height="47.89669818900351" class="bar-mmdr" rx="2"/>
-<text x="426.3724489795918" y="287.10330181099647" text-anchor="middle" class="bar-label">2.1</text>
-<text x="428.2653061224489" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 428.2653061224489 340)">gantt med</text>
-<rect x="435.29591836734687" y="260.9894514372048" width="3.785714285714285" height="59.010548562795165" class="bar-mmdr" rx="2"/>
-<text x="437.18877551020404" y="275.9894514372048" text-anchor="middle" class="bar-label">2.5</text>
-<text x="439.08163265306115" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 439.08163265306115 340)">requirement med</text>
-<rect x="446.11224489795916" y="251.3331051804238" width="3.785714285714285" height="68.66689481957623" class="bar-mmdr" rx="2"/>
-<text x="448.0051020408163" y="266.3331051804238" text-anchor="middle" class="bar-label">2.9</text>
-<text x="449.89795918367344" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 449.89795918367344 340)">gitgraph med</text>
-<rect x="456.9285714285714" y="280.37944292151707" width="3.785714285714285" height="39.620557078482925" class="bar-mmdr" rx="2"/>
-<text x="458.82142857142856" y="295.37944292151707" text-anchor="middle" class="bar-label">1.9</text>
-<text x="460.71428571428567" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 460.71428571428567 340)">c4 med</text>
-<rect x="467.7448979591836" y="263.59013638810177" width="3.785714285714285" height="56.409863611898245" class="bar-mmdr" rx="2"/>
-<text x="469.6377551020408" y="278.59013638810177" text-anchor="middle" class="bar-label">2.4</text>
-<text x="471.5306122448979" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 471.5306122448979 340)">sankey med</text>
-<rect x="478.56122448979585" y="252.90568562460686" width="3.785714285714285" height="67.09431437539315" class="bar-mmdr" rx="2"/>
-<text x="480.454081632653" y="267.90568562460686" text-anchor="middle" class="bar-label">2.8</text>
-<text x="482.3469387755101" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 482.3469387755101 340)">quadrant med</text>
-<rect x="489.3775510204081" y="249.41162510924" width="3.785714285714285" height="70.58837489076" class="bar-mmdr" rx="2"/>
-<text x="491.27040816326524" y="264.41162510924" text-anchor="middle" class="bar-label">3.0</text>
-<text x="493.16326530612236" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 493.16326530612236 340)">zenuml med</text>
-<rect x="500.19387755102036" y="241.14104903088634" width="3.785714285714285" height="78.85895096911365" class="bar-mmdr" rx="2"/>
-<text x="502.08673469387753" y="256.14104903088634" text-anchor="middle" class="bar-label">3.4</text>
-<text x="503.97959183673464" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 503.97959183673464 340)">block med</text>
-<rect x="511.0102040816326" y="249.03532643189538" width="3.785714285714285" height="70.9646735681046" class="bar-mmdr" rx="2"/>
-<text x="512.9030612244898" y="264.0353264318954" text-anchor="middle" class="bar-label">3.0</text>
-<text x="514.7959183673469" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 514.7959183673469 340)">packet med</text>
-<rect x="521.8265306122448" y="253.2918567875197" width="3.785714285714285" height="66.7081432124803" class="bar-mmdr" rx="2"/>
-<text x="523.7193877551019" y="268.2918567875197" text-anchor="middle" class="bar-label">2.8</text>
-<text x="525.6122448979592" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 525.6122448979592 340)">kanban med</text>
-<rect x="532.6428571428571" y="248.58895512989545" width="3.785714285714285" height="71.41104487010455" class="bar-mmdr" rx="2"/>
-<text x="534.5357142857142" y="263.58895512989545" text-anchor="middle" class="bar-label">3.0</text>
-<text x="536.4285714285714" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 536.4285714285714 340)">architecture med</text>
-<rect x="543.4591836734694" y="252.0831997404175" width="3.785714285714285" height="67.91680025958247" class="bar-mmdr" rx="2"/>
-<text x="545.3520408163265" y="267.0831997404175" text-anchor="middle" class="bar-label">2.9</text>
-<text x="547.2448979591837" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 547.2448979591837 340)">radar med</text>
-<rect x="554.2755102040816" y="264.8215978704168" width="3.785714285714285" height="55.178402129583226" class="bar-mmdr" rx="2"/>
-<text x="556.1683673469387" y="279.8215978704168" text-anchor="middle" class="bar-label">2.4</text>
-<text x="558.0612244897959" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 558.0612244897959 340)">treemap med</text>
-<rect x="565.0918367346937" y="275.9396254307325" width="3.785714285714285" height="44.060374569267495" class="bar-mmdr" rx="2"/>
-<text x="566.9846938775509" y="290.9396254307325" text-anchor="middle" class="bar-label">2.0</text>
-<text x="568.8775510204081" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 568.8775510204081 340)">xychart med</text>
-<rect x="575.908163265306" y="204.9103914140358" width="3.785714285714285" height="115.08960858596421" class="bar-mmdr" rx="2"/>
-<text x="577.8010204081631" y="219.9103914140358" text-anchor="middle" class="bar-label">6.0</text>
-<text x="579.6938775510204" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 579.6938775510204 340)">flowchart</text>
-<rect x="586.7244897959183" y="248.60923132601692" width="3.785714285714285" height="71.39076867398308" class="bar-mmdr" rx="2"/>
-<text x="588.6173469387754" y="263.6092313260169" text-anchor="middle" class="bar-label">3.0</text>
-<text x="590.5102040816327" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 590.5102040816327 340)">sequence</text>
-<rect x="597.5408163265306" y="250.86735422494314" width="3.785714285714285" height="69.13264577505686" class="bar-mmdr" rx="2"/>
-<text x="599.4336734693877" y="265.86735422494314" text-anchor="middle" class="bar-label">2.9</text>
-<text x="601.3265306122449" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 601.3265306122449 340)">class</text>
-<rect x="608.3571428571428" y="230.9699475680855" width="3.785714285714285" height="89.03005243191448" class="bar-mmdr" rx="2"/>
-<text x="610.2499999999999" y="245.9699475680855" text-anchor="middle" class="bar-label">4.0</text>
-<text x="612.1428571428571" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 612.1428571428571 340)">state</text>
-<rect x="619.1734693877551" y="248.37658467771297" width="3.785714285714285" height="71.62341532228704" class="bar-mmdr" rx="2"/>
-<text x="621.0663265306122" y="263.37658467771297" text-anchor="middle" class="bar-label">3.1</text>
-<text x="622.9591836734694" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 622.9591836734694 340)">class tiny</text>
-<rect x="629.9897959183672" y="254.65814601334478" width="3.785714285714285" height="65.34185398665524" class="bar-mmdr" rx="2"/>
-<text x="631.8826530612243" y="269.6581460133448" text-anchor="middle" class="bar-label">2.8</text>
-<text x="633.7755102040816" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 633.7755102040816 340)">state tiny</text>
-<rect x="640.8061224489795" y="231.0441971304776" width="3.785714285714285" height="88.95580286952239" class="bar-mmdr" rx="2"/>
-<text x="642.6989795918366" y="246.0441971304776" text-anchor="middle" class="bar-label">4.0</text>
-<text x="644.5918367346939" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 644.5918367346939 340)">sequence tiny</text>
+<line x1="120" y1="238.77038691385002" x2="650" y2="238.77038691385002" stroke="#ddd" stroke-dasharray="2,2"/>
+<text x="110" y="242.77038691385002" text-anchor="end" class="tick-label">10 ms</text>
+<line x1="120" y1="157.54077382770004" x2="650" y2="157.54077382770004" stroke="#ddd" stroke-dasharray="2,2"/>
+<text x="110" y="161.54077382770004" text-anchor="end" class="tick-label">100 ms</text>
+<line x1="120" y1="76.31116074155005" x2="650" y2="76.31116074155005" stroke="#ddd" stroke-dasharray="2,2"/>
+<text x="110" y="80.31116074155005" text-anchor="end" class="tick-label">1000 ms</text>
+<rect x="146.5" y="179.6955178997323" width="61.83333333333333" height="140.3044821002677" class="bar-mmdr" rx="2"/>
+<text x="177.41666666666666" y="194.6955178997323" text-anchor="middle" class="bar-label">53.4</text>
+<rect x="213.33333333333331" y="54.30382484094599" width="61.83333333333333" height="265.696175159054" class="bar-cli" rx="2"/>
+<text x="244.24999999999997" y="69.30382484094599" text-anchor="middle" class="bar-label">1866</text>
+<text x="208.33333333333331" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 208.33333333333331 340)">flow subgraph boundary intrusion</text>
+<rect x="323.16666666666663" y="225.5561997262224" width="61.83333333333333" height="94.44380027377761" class="bar-mmdr" rx="2"/>
+<text x="354.0833333333333" y="240.5561997262224" text-anchor="middle" class="bar-label">14.5</text>
+<rect x="389.99999999999994" y="55.76830599081592" width="61.83333333333333" height="264.2316940091841" class="bar-cli" rx="2"/>
+<text x="420.91666666666663" y="70.76830599081592" text-anchor="middle" class="bar-label">1790</text>
+<text x="384.99999999999994" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 384.99999999999994 340)">flow parallel edges bundle</text>
+<rect x="499.8333333333333" y="215.51650618899885" width="61.83333333333333" height="104.48349381100117" class="bar-mmdr" rx="2"/>
+<text x="530.75" y="230.51650618899885" text-anchor="middle" class="bar-label">19.3</text>
+<rect x="566.6666666666666" y="56.5594129995967" width="61.83333333333333" height="263.4405870004033" class="bar-cli" rx="2"/>
+<text x="597.5833333333333" y="71.5594129995967" text-anchor="middle" class="bar-label">1750</text>
+<text x="561.6666666666666" y="340" text-anchor="middle" class="tick-label" transform="rotate(-30 561.6666666666666 340)">flow flow direction backtrack</text>
 <rect x="670" y="60" width="15" height="15" class="bar-mmdr"/>
 <text x="690" y="72" class="legend">mmdr</text>
+<rect x="670" y="85" width="15" height="15" class="bar-cli"/>
+<text x="690" y="97" class="legend">mermaid-cli</text>
 <line x1="120" y1="40" x2="120" y2="320" stroke="#333" stroke-width="2"/>
 <line x1="120" y1="320" x2="650" y2="320" stroke="#333" stroke-width="2"/>
 </svg>

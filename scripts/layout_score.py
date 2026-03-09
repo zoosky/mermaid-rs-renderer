@@ -8,6 +8,7 @@ from pathlib import Path
 WEIGHTS = {
     # Crossing/overlap terms are still dominant readability drivers.
     "edge_crossings": 5.0,
+    "edge_crossings_per_edge": 4.0,
     "edge_node_crossings": 6.0,
     "node_overlap_count": 12.0,
     "edge_bends": 2.0,
@@ -32,12 +33,16 @@ WEIGHTS = {
     "edge_detour_penalty": 80.0,
     # Explicit whitespace and composition quality.
     "space_efficiency_penalty": 320.0,
+    # Prioritize whitespace waste primarily when diagrams are large.
+    "wasted_space_large_ratio": 340.0,
+    "space_efficiency_large_penalty": 360.0,
+    "component_gap_large_ratio": 220.0,
     "margin_imbalance_ratio": 160.0,
-    # Ownership-aware edge-label quality (touching the own path is best).
-    "edge_label_owned_path_non_touch_ratio": 180.0,
+    # Ownership-aware edge-label quality (diagram-specific optimal gap).
+    "edge_label_owned_path_too_close_ratio": 180.0,
+    "edge_label_owned_path_optimal_gap_penalty": 140.0,
     "edge_label_owned_path_gap_bad_ratio": 160.0,
     "edge_label_owned_alignment_bad_ratio": 120.0,
-    "edge_label_owned_path_clearance_penalty": 140.0,
     "edge_label_owned_path_gap_mean": 4.0,
     "edge_label_owned_anchor_offset_bad_ratio": 140.0,
     "edge_label_owned_anchor_offset_px_mean": 2.2,
@@ -75,6 +80,13 @@ def safe_ratio(num, den, default=0.0):
 
 def clamp(value, lo, hi):
     return max(lo, min(hi, value))
+
+
+def smoothstep_ramp(value, start, end):
+    if end <= start:
+        return 1.0 if value >= end else 0.0
+    t = clamp((value - start) / (end - start), 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
 
 
 def segments_from_points(points):
@@ -855,6 +867,21 @@ def compute_metrics(data, nodes, edges):
 
     target_fill = 0.60
     space_efficiency_penalty = max(0.0, target_fill - content_fill_ratio)
+    # Large-diagram emphasis for whitespace waste:
+    # small diagrams get near-zero weight; large dense canvases get full weight.
+    large_node_weight = smoothstep_ramp(node_count, 14, 70)
+    large_edge_weight = smoothstep_ramp(edge_count, 18, 130)
+    large_area_weight = smoothstep_ramp(layout_area, 300000.0, 2200000.0)
+    structural_weight = max(large_node_weight, large_edge_weight)
+    large_diagram_space_weight = clamp(
+        large_area_weight * 0.60 + structural_weight * 0.40,
+        0.0,
+        1.0,
+    )
+    wasted_space_large_ratio = wasted_space_ratio * large_diagram_space_weight
+    space_efficiency_large_penalty = (
+        space_efficiency_penalty * large_diagram_space_weight
+    )
 
     left_margin = max(0.0, min_x)
     right_margin = max(0.0, width - max_x)
@@ -900,6 +927,7 @@ def compute_metrics(data, nodes, edges):
         0.0,
         1.0 - safe_ratio(component_bbox_area_sum, max(content_bbox_area, 1e-6), default=0.0),
     )
+    component_gap_large_ratio = component_gap_ratio * large_diagram_space_weight
     component_balance_penalty = 0.0
     if len(component_areas) > 1:
         total_component_area = sum(component_areas)
@@ -961,6 +989,11 @@ def compute_metrics(data, nodes, edges):
         max(edge_count, 1),
         default=0.0,
     )
+    edge_crossings_per_edge = safe_ratio(
+        edge_crossings,
+        max(edge_count, 1),
+        default=0.0,
+    )
     subgraph_boundary_intrusion_ratio = safe_ratio(
         subgraph_boundary_intrusion_pairs,
         max(edge_count, 1),
@@ -1017,6 +1050,7 @@ def compute_metrics(data, nodes, edges):
         "node_count": node_count,
         "edge_count": edge_count,
         "edge_crossings": edge_crossings,
+        "edge_crossings_per_edge": edge_crossings_per_edge,
         "edge_node_crossings": edge_node_crossings,
         "edge_node_crossing_length": edge_node_crossing_length,
         "edge_node_crossing_length_per_edge": edge_node_crossing_length_per_edge,
@@ -1076,12 +1110,16 @@ def compute_metrics(data, nodes, edges):
         "content_fill_ratio": content_fill_ratio,
         "wasted_space_ratio": wasted_space_ratio,
         "space_efficiency_penalty": space_efficiency_penalty,
+        "large_diagram_space_weight": large_diagram_space_weight,
+        "wasted_space_large_ratio": wasted_space_large_ratio,
+        "space_efficiency_large_penalty": space_efficiency_large_penalty,
         "content_center_offset_ratio": content_center_offset_ratio,
         "content_overflow_ratio": content_overflow_ratio,
         "component_count": component_count,
         "disconnected_components": disconnected_components,
         "component_bbox_area_sum": component_bbox_area_sum,
         "component_gap_ratio": component_gap_ratio,
+        "component_gap_large_ratio": component_gap_large_ratio,
         "component_balance_penalty": component_balance_penalty,
         "node_spacing_target": spacing_target,
         "node_spacing_violation_count": node_spacing_violation_count,

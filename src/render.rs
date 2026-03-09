@@ -64,6 +64,11 @@ pub fn arrowhead_inset(
     }
 }
 
+const SEQUENCE_VIEWBOX_PAD_LEFT: f32 = 50.0;
+const SEQUENCE_VIEWBOX_PAD_RIGHT: f32 = 50.0;
+const SEQUENCE_VIEWBOX_PAD_TOP: f32 = 10.0;
+const SEQUENCE_VIEWBOX_PAD_BOTTOM: f32 = 11.0;
+
 pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> String {
     let mut svg = String::new();
     let state_font_size = if layout.kind == crate::ir::DiagramKind::State {
@@ -71,6 +76,7 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
     } else {
         theme.font_size
     };
+    let is_sequence = matches!(layout.diagram, DiagramData::Sequence(_));
     let (width, height, viewbox_x, viewbox_y, viewbox_width, viewbox_height) =
         if let DiagramData::Error(error) = &layout.diagram {
             (
@@ -138,6 +144,19 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
             let viewbox_x = min_x - pad;
             let viewbox_y = min_y - pad;
             (width, height, viewbox_x, viewbox_y, width, height)
+        } else if is_sequence {
+            let width = (layout.width + SEQUENCE_VIEWBOX_PAD_LEFT + SEQUENCE_VIEWBOX_PAD_RIGHT)
+                .max(1.0);
+            let height = (layout.height + SEQUENCE_VIEWBOX_PAD_TOP + SEQUENCE_VIEWBOX_PAD_BOTTOM)
+                .max(1.0);
+            (
+                width,
+                height,
+                -SEQUENCE_VIEWBOX_PAD_LEFT,
+                -SEQUENCE_VIEWBOX_PAD_TOP,
+                width,
+                height,
+            )
         } else {
             let width = layout.width.max(1.0);
             let height = layout.height.max(1.0);
@@ -1016,17 +1035,17 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
             ));
 
             if overlay_flowchart {
-                if edge.arrow_start {
-                    if let Some(point) = edge.points.first().copied() {
-                        let angle = edge_endpoint_angle(&edge.points, true);
-                        overlay_arrows.push((true, point, angle, stroke.clone(), stroke_width));
-                    }
+                if edge.arrow_start
+                    && let Some(point) = edge.points.first().copied()
+                {
+                    let angle = edge_endpoint_angle(&edge.points, true);
+                    overlay_arrows.push((true, point, angle, stroke.clone(), stroke_width));
                 }
-                if edge.arrow_end {
-                    if let Some(point) = edge.points.last().copied() {
-                        let angle = edge_endpoint_angle(&edge.points, false);
-                        overlay_arrows.push((false, point, angle, stroke.clone(), stroke_width));
-                    }
+                if edge.arrow_end
+                    && let Some(point) = edge.points.last().copied()
+                {
+                    let angle = edge_endpoint_angle(&edge.points, false);
+                    overlay_arrows.push((false, point, angle, stroke.clone(), stroke_width));
                 }
             }
 
@@ -2007,12 +2026,17 @@ fn render_error(layout: &ErrorLayout, _theme: &Theme, _config: &LayoutConfig) ->
 }
 
 fn normalize_font_family(font_family: &str) -> String {
-    font_family
+    let normalized = font_family
         .split(',')
         .map(|part| part.trim().trim_matches('\'').trim_matches('"'))
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
-        .join(",")
+        .join(",");
+    if normalized.is_empty() {
+        "sans-serif".to_string()
+    } else {
+        normalized
+    }
 }
 
 fn error_style_block(theme: &Theme) -> String {
@@ -5258,12 +5282,11 @@ fn render_er_node(
     let mut max_name_width = 0.0f32;
     let mut max_badge_width = 0.0f32;
     for attr in &attrs {
-        if !attr.data_type.is_empty() {
-            if let Some(width) =
+        if !attr.data_type.is_empty()
+            && let Some(width) =
                 text_metrics::measure_text_width(&attr.data_type, font_size, &theme.font_family)
-            {
-                max_type_width = max_type_width.max(width);
-            }
+        {
+            max_type_width = max_type_width.max(width);
         }
         if let Some(width) =
             text_metrics::measure_text_width(&attr.name, font_size, &theme.font_family)
@@ -6125,5 +6148,33 @@ mod tests {
             &points,
             near
         ));
+    }
+
+    #[test]
+    fn normalize_font_family_falls_back_for_blank_input() {
+        assert_eq!(normalize_font_family(""), "sans-serif");
+        assert_eq!(normalize_font_family("  ,  , "), "sans-serif");
+    }
+
+    #[test]
+    fn render_svg_normalizes_quoted_font_family() {
+        let mut graph = Graph::new();
+        graph.direction = Direction::LeftRight;
+        graph.ensure_node(
+            "A",
+            Some("Alpha".to_string()),
+            Some(crate::ir::NodeShape::Rectangle),
+        );
+
+        let layout = compute_layout(&graph, &Theme::modern(), &LayoutConfig::default());
+
+        let mut theme = Theme::modern();
+        theme.font_family = "'trebuchet ms', verdana, arial, sans-serif".to_string();
+        let svg = render_svg(&layout, &theme, &LayoutConfig::default());
+        assert!(svg.contains("font-family=\"trebuchet ms,verdana,arial,sans-serif\""));
+
+        theme.font_family = "   ".to_string();
+        let svg = render_svg(&layout, &theme, &LayoutConfig::default());
+        assert!(svg.contains("font-family=\"sans-serif\""));
     }
 }

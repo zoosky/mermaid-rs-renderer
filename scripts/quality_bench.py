@@ -1088,6 +1088,52 @@ def compute_svg_edge_path_metrics(edges):
     }
 
 
+def edge_label_gap_profile(diagram_kind: str, label_height: float, label_kind: str = "center"):
+    h = max(1.0, float(label_height))
+    if diagram_kind == "sequence":
+        kind = str(label_kind or "center").strip().lower()
+        if kind in {"start", "end"}:
+            # Endpoint labels naturally sit closer to the signal so the arrowhead
+            # remains visually associated with its annotation.
+            target_gap = max(1.6, min(3.2, h * 0.11))
+            sigma = max(0.9, min(1.8, h * 0.08))
+            band_half = max(0.8, min(1.8, h * 0.10))
+            band_min = max(0.8, target_gap - band_half)
+            too_close = max(0.7, min(1.8, h * 0.07))
+        else:
+            # Center message labels should clear the line by a visible gap, but
+            # not drift so far that they feel detached from the message.
+            target_gap = max(2.8, min(4.8, h * 0.16))
+            sigma = max(1.6, min(3.4, h * 0.18))
+            band_half = max(1.2, min(2.8, h * 0.13))
+            band_min = max(1.4, target_gap - band_half)
+            too_close = max(1.2, min(2.6, h * 0.10))
+        return {
+            "touch_eps": 0.5,
+            "target_gap": target_gap,
+            "sigma": sigma,
+            "band_min": band_min,
+            "band_max": target_gap + band_half,
+            "too_close_limit": too_close,
+        }
+    return {
+        "touch_eps": 0.5,
+        "target_gap": 0.5,
+        "sigma": 1.6,
+        "band_min": 0.0,
+        "band_max": 2.0,
+        "too_close_limit": 0.35,
+    }
+
+
+def optimal_gap_score(gap: float, target_gap: float, sigma: float):
+    if not math.isfinite(gap):
+        return 0.0
+    denom = max(float(sigma), 1e-6)
+    z = (float(gap) - float(target_gap)) / denom
+    return math.exp(-0.5 * z * z)
+
+
 def infer_label_owner(label, nodes):
     cx = label["x"] + label["width"] / 2.0
     cy = label["y"] + label["height"] / 2.0
@@ -1183,12 +1229,9 @@ def compute_label_metrics(
     edge_label_path_gaps = []
     edge_label_path_bad_count = 0
     edge_label_path_touch_count = 0
+    edge_label_path_too_close_count = 0
     edge_label_clearance_scores = []
     edge_label_in_band_count = 0
-    edge_label_touch_eps = 0.5
-    # Label-path attachment score: 1.0 when touching (or within eps), then
-    # decays smoothly as labels drift away from their owning path.
-    edge_label_clearance_sigma = 1.6
     candidate_edge_labels = list(explicit_edge_label_boxes)
     use_fallback_candidate_filter = False
     if not candidate_edge_labels and allow_fallback_candidates:
@@ -1243,6 +1286,8 @@ def compute_label_metrics(
         owned_mapped = owned_points is not None
         owned_dist = point_polyline_distance(center, owned_points) if owned_mapped else None
         owned_gap = polyline_rect_gap(owned_points, label) if owned_mapped else None
+        label_kind = str(label.get("label_kind", "center")).strip().lower()
+        gap_profile = edge_label_gap_profile(diagram_kind, label.get("height", 0.0), label_kind)
         candidate_records.append(
             {
                 "label": label,
@@ -1255,6 +1300,7 @@ def compute_label_metrics(
                 "owned_dist": owned_dist,
                 "owned_gap": owned_gap,
                 "owned_points": owned_points,
+                "gap_profile": gap_profile,
             }
         )
 
@@ -1273,18 +1319,25 @@ def compute_label_metrics(
         min_gap = row["min_gap"]
         bad_limit = row["bad_limit"]
         path_bad_limit = row["path_bad_limit"]
+        gap_profile = row.get("gap_profile", {})
+        touch_eps = float(gap_profile.get("touch_eps", 0.5))
+        target_gap = float(gap_profile.get("target_gap", touch_eps))
+        sigma = float(gap_profile.get("sigma", 1.6))
+        band_min = float(gap_profile.get("band_min", 0.0))
+        band_max = float(gap_profile.get("band_max", 2.0))
+        too_close_limit = float(gap_profile.get("too_close_limit", touch_eps))
         edge_label_distances.append(min_dist)
         edge_label_path_gaps.append(min_gap)
         if min_dist > bad_limit:
             edge_label_bad_count += 1
         if min_gap > path_bad_limit:
             edge_label_path_bad_count += 1
-        if min_gap <= edge_label_touch_eps:
+        if min_gap <= touch_eps:
             edge_label_path_touch_count += 1
-        gap_over = max(0.0, min_gap - edge_label_touch_eps)
-        z = gap_over / edge_label_clearance_sigma
-        edge_label_clearance_scores.append(math.exp(-0.5 * z * z))
-        if 0.0 <= min_gap <= 2.0:
+        if min_gap <= too_close_limit:
+            edge_label_path_too_close_count += 1
+        edge_label_clearance_scores.append(optimal_gap_score(min_gap, target_gap, sigma))
+        if band_min <= min_gap <= band_max:
             edge_label_in_band_count += 1
 
     edge_label_owned_distances = []
@@ -1292,6 +1345,7 @@ def compute_label_metrics(
     edge_label_owned_path_gaps = []
     edge_label_owned_path_bad_count = 0
     edge_label_owned_path_touch_count = 0
+    edge_label_owned_path_too_close_count = 0
     edge_label_owned_clearance_scores = []
     edge_label_owned_in_band_count = 0
     edge_label_owned_anchor_offset_ratios = []
@@ -1312,6 +1366,13 @@ def compute_label_metrics(
         if not isinstance(owned_dist, (int, float)) or not isinstance(owned_gap, (int, float)):
             edge_label_owned_unmapped_count += 1
             continue
+        gap_profile = row.get("gap_profile", {})
+        touch_eps = float(gap_profile.get("touch_eps", 0.5))
+        target_gap = float(gap_profile.get("target_gap", touch_eps))
+        sigma = float(gap_profile.get("sigma", 1.6))
+        band_min = float(gap_profile.get("band_min", 0.0))
+        band_max = float(gap_profile.get("band_max", 2.0))
+        too_close_limit = float(gap_profile.get("too_close_limit", touch_eps))
         owned_points = row.get("owned_points")
         if not isinstance(owned_points, list) or len(owned_points) < 2:
             edge_label_owned_unmapped_count += 1
@@ -1324,12 +1385,12 @@ def compute_label_metrics(
             edge_label_owned_bad_count += 1
         if owned_gap > path_bad_limit:
             edge_label_owned_path_bad_count += 1
-        if owned_gap <= edge_label_touch_eps:
+        if owned_gap <= touch_eps:
             edge_label_owned_path_touch_count += 1
-        owned_gap_over = max(0.0, owned_gap - edge_label_touch_eps)
-        z = owned_gap_over / edge_label_clearance_sigma
-        edge_label_owned_clearance_scores.append(math.exp(-0.5 * z * z))
-        if 0.0 <= owned_gap <= 2.0:
+        if owned_gap <= too_close_limit:
+            edge_label_owned_path_too_close_count += 1
+        edge_label_owned_clearance_scores.append(optimal_gap_score(owned_gap, target_gap, sigma))
+        if band_min <= owned_gap <= band_max:
             edge_label_owned_in_band_count += 1
         label = row.get("label", {})
         center = (
@@ -1456,14 +1517,19 @@ def compute_label_metrics(
                 "edge_label_path_touch_ratio": (
                     edge_label_path_touch_count / len(edge_label_path_gaps)
                 ),
+                "edge_label_path_too_close_count": edge_label_path_too_close_count,
+                "edge_label_path_too_close_ratio": (
+                    edge_label_path_too_close_count / len(edge_label_path_gaps)
+                ),
                 "edge_label_path_gap_bad_count": edge_label_path_bad_count,
                 "edge_label_path_gap_bad_ratio": (
                     edge_label_path_bad_count / len(edge_label_path_gaps)
                 ),
-                # Score in [0,1]: 1 when touching path, then decays as labels
-                # drift farther from the path.
+                # Score in [0,1]: 1 at diagram-specific optimal path clearance.
                 "edge_label_path_clearance_score_mean": path_clearance_score,
                 "edge_label_path_clearance_penalty": (1.0 - path_clearance_score),
+                "edge_label_path_optimal_gap_score_mean": path_clearance_score,
+                "edge_label_path_optimal_gap_penalty": (1.0 - path_clearance_score),
                 "edge_label_path_non_touch_ratio": (
                     1.0 - (edge_label_path_touch_count / len(edge_label_path_gaps))
                 ),
@@ -1496,14 +1562,20 @@ def compute_label_metrics(
                 "edge_label_owned_path_touch_ratio": (
                     edge_label_owned_path_touch_count / len(edge_label_owned_path_gaps)
                 ),
+                "edge_label_owned_path_too_close_count": edge_label_owned_path_too_close_count,
+                "edge_label_owned_path_too_close_ratio": (
+                    edge_label_owned_path_too_close_count
+                    / len(edge_label_owned_path_gaps)
+                ),
                 "edge_label_owned_path_gap_bad_count": edge_label_owned_path_bad_count,
                 "edge_label_owned_path_gap_bad_ratio": (
                     edge_label_owned_path_bad_count / len(edge_label_owned_path_gaps)
                 ),
-                # Score in [0,1]: 1 when touching path, then decays as labels
-                # drift farther from the path.
+                # Score in [0,1]: 1 at diagram-specific optimal path clearance.
                 "edge_label_owned_path_clearance_score_mean": owned_clearance_score,
                 "edge_label_owned_path_clearance_penalty": (1.0 - owned_clearance_score),
+                "edge_label_owned_path_optimal_gap_score_mean": owned_clearance_score,
+                "edge_label_owned_path_optimal_gap_penalty": (1.0 - owned_clearance_score),
                 "edge_label_owned_path_non_touch_ratio": (
                     1.0
                     - (
@@ -1898,6 +1970,46 @@ def summarize_metric(results, key):
     return sum(values) / len(values), len(values)
 
 
+def prefer_owned_sequence_label_metrics(metrics):
+    if not isinstance(metrics, dict):
+        return False
+    owned_count = metrics.get("edge_label_owned_path_gap_count")
+    if not isinstance(owned_count, (int, float)) or float(owned_count) <= 0.0:
+        return False
+    mapping_ratio = metrics.get("edge_label_owned_mapping_ratio")
+    if isinstance(mapping_ratio, (int, float)):
+        return float(mapping_ratio) >= 0.80
+    return True
+
+
+def effective_label_quality_metrics(metrics, fixture_kind):
+    use_owned = fixture_kind == "sequence" and prefer_owned_sequence_label_metrics(metrics)
+    if use_owned:
+        gap_mean = metrics.get("edge_label_owned_path_gap_mean")
+        too_close = metrics.get("edge_label_owned_path_too_close_ratio")
+        optimal = metrics.get("edge_label_owned_path_optimal_gap_score_mean")
+        source = "owned"
+    else:
+        gap_mean = metrics.get("edge_label_path_gap_mean")
+        too_close = metrics.get("edge_label_path_too_close_ratio")
+        optimal = metrics.get("edge_label_path_optimal_gap_score_mean")
+        source = "path"
+
+    if not isinstance(gap_mean, (int, float)):
+        gap_mean = 0.0
+    if not isinstance(too_close, (int, float)):
+        too_close = 0.0
+    if not isinstance(optimal, (int, float)):
+        optimal = 0.0
+
+    return {
+        "gap_mean": float(gap_mean),
+        "too_close_ratio": float(too_close),
+        "optimal_gap_score": float(optimal),
+        "source": source,
+    }
+
+
 def collect_common_scored(left, right):
     common = []
     for key, lval in left.items():
@@ -1912,9 +2024,9 @@ def collect_common_scored(left, right):
 
 def metric_higher_is_better(metric: str) -> bool:
     return metric in {
-        "edge_label_path_touch_ratio",
-        "edge_label_owned_path_touch_ratio",
         "edge_label_owned_mapping_ratio",
+        "edge_label_path_optimal_gap_score_mean",
+        "edge_label_owned_path_optimal_gap_score_mean",
         "edge_label_path_clearance_score_mean",
         "edge_label_owned_path_clearance_score_mean",
         "edge_label_owned_anchor_offset_score_mean",
@@ -1974,11 +2086,14 @@ def common_comparison_stats(left, right):
         "flow_backtracking_edge_ratio",
         "label_overlap_count",
         "label_out_of_bounds_count",
-        "edge_label_path_clearance_penalty",
-        "edge_label_path_touch_ratio",
-        "edge_label_owned_path_clearance_penalty",
-        "edge_label_owned_path_touch_ratio",
+        "edge_label_path_optimal_gap_penalty",
+        "edge_label_path_too_close_ratio",
+        "edge_label_owned_path_optimal_gap_penalty",
+        "edge_label_owned_path_too_close_ratio",
         "edge_label_owned_anchor_offset_bad_ratio",
+        "wasted_space_large_ratio",
+        "space_efficiency_large_penalty",
+        "component_gap_large_ratio",
     ]
     metrics = {}
     for metric in core_metrics:
@@ -2013,9 +2128,12 @@ def common_comparison_stats(left, right):
         "flow_backtrack_ratio",
         "label_overlap_count",
         "label_out_of_bounds_count",
-        "edge_label_owned_path_clearance_penalty",
-        "edge_label_owned_path_touch_ratio",
+        "edge_label_owned_path_optimal_gap_penalty",
+        "edge_label_owned_path_too_close_ratio",
         "edge_label_owned_anchor_offset_bad_ratio",
+        "wasted_space_large_ratio",
+        "space_efficiency_large_penalty",
+        "component_gap_large_ratio",
     ]
     non_worse = 0
     strict = 0
@@ -2083,11 +2201,14 @@ def summarize_common_comparison(left, right):
         "flow_backtracking_edge_ratio",
         "label_overlap_count",
         "label_out_of_bounds_count",
-        "edge_label_path_clearance_penalty",
-        "edge_label_path_touch_ratio",
-        "edge_label_owned_path_clearance_penalty",
-        "edge_label_owned_path_touch_ratio",
+        "edge_label_path_optimal_gap_penalty",
+        "edge_label_path_too_close_ratio",
+        "edge_label_owned_path_optimal_gap_penalty",
+        "edge_label_owned_path_too_close_ratio",
         "edge_label_owned_anchor_offset_bad_ratio",
+        "wasted_space_large_ratio",
+        "space_efficiency_large_penalty",
+        "component_gap_large_ratio",
     ]:
         metric_stats = stats["metrics"].get(metric, {})
         lines.append(
@@ -2294,6 +2415,88 @@ def summarize_sequence_cli_conformance(results):
     return lines
 
 
+def evaluate_thresholds(
+    engine_name,
+    engine_results,
+    fixture_kinds,
+    max_sequence_too_close=None,
+    max_large_space_ratio=None,
+    min_large_space_weight=0.25,
+    max_flowchart_crossings_per_edge=None,
+):
+    breaches = []
+    if not isinstance(engine_results, dict):
+        return breaches
+
+    if isinstance(max_sequence_too_close, (int, float)):
+        rows = []
+        for fixture, metrics in engine_results.items():
+            if fixture_kinds.get(fixture) != "sequence":
+                continue
+            if not isinstance(metrics, dict):
+                continue
+            effective = effective_label_quality_metrics(metrics, "sequence")
+            rows.append((effective["too_close_ratio"], fixture, effective["source"]))
+        if rows:
+            worst_val, worst_fixture, source = max(rows, key=lambda row: row[0])
+            if worst_val > float(max_sequence_too_close) + 1e-9:
+                breaches.append(
+                    f"[{engine_name}] sequence too-close ratio breached: "
+                    f"{worst_val:.3f} > {float(max_sequence_too_close):.3f} "
+                    f"({worst_fixture}, source={source})"
+                )
+
+    if isinstance(max_large_space_ratio, (int, float)):
+        rows = []
+        for fixture, metrics in engine_results.items():
+            if not isinstance(metrics, dict):
+                continue
+            weight = metrics.get("large_diagram_space_weight")
+            wasted_large = metrics.get("wasted_space_large_ratio")
+            if not isinstance(weight, (int, float)) or not isinstance(wasted_large, (int, float)):
+                continue
+            if float(weight) < float(min_large_space_weight):
+                continue
+            rows.append((float(wasted_large), float(weight), fixture))
+        if rows:
+            worst_val, worst_weight, worst_fixture = max(rows, key=lambda row: row[0])
+            if worst_val > float(max_large_space_ratio) + 1e-9:
+                breaches.append(
+                    f"[{engine_name}] large-diagram wasted-space ratio breached: "
+                    f"{worst_val:.3f} > {float(max_large_space_ratio):.3f} "
+                    f"(weight={worst_weight:.2f}, fixture={worst_fixture})"
+                )
+
+    if isinstance(max_flowchart_crossings_per_edge, (int, float)):
+        rows = []
+        for fixture, metrics in engine_results.items():
+            if fixture_kinds.get(fixture) != "flowchart":
+                continue
+            if not isinstance(metrics, dict):
+                continue
+            edge_count = metrics.get("edge_count")
+            crossings = metrics.get("svg_edge_crossings")
+            weight = metrics.get("large_diagram_space_weight")
+            if not isinstance(edge_count, (int, float)) or edge_count <= 0:
+                continue
+            if not isinstance(crossings, (int, float)):
+                continue
+            if isinstance(weight, (int, float)) and float(weight) < float(min_large_space_weight):
+                continue
+            ratio = float(crossings) / max(float(edge_count), 1.0)
+            rows.append((ratio, float(crossings), float(edge_count), fixture))
+        if rows:
+            worst_ratio, worst_cross, worst_edges, worst_fixture = max(rows, key=lambda row: row[0])
+            if worst_ratio > float(max_flowchart_crossings_per_edge) + 1e-9:
+                breaches.append(
+                    f"[{engine_name}] flowchart crossings-per-edge breached: "
+                    f"{worst_ratio:.3f} > {float(max_flowchart_crossings_per_edge):.3f} "
+                    f"(crossings={worst_cross:.0f}, edges={worst_edges:.0f}, fixture={worst_fixture})"
+                )
+
+    return breaches
+
+
 def append_benchmark_history(history_path: Path, record: dict):
     history_path.parent.mkdir(parents=True, exist_ok=True)
     with history_path.open("a", encoding="utf-8") as handle:
@@ -2378,6 +2581,36 @@ def main():
         action="store_true",
         help="disable benchmark history JSONL logging for this run",
     )
+    parser.add_argument(
+        "--max-sequence-too-close",
+        type=float,
+        default=None,
+        help="fail if sequence edge-label too-close ratio exceeds this value",
+    )
+    parser.add_argument(
+        "--max-large-space-ratio",
+        type=float,
+        default=None,
+        help="fail if large-diagram wasted-space ratio exceeds this value",
+    )
+    parser.add_argument(
+        "--min-large-space-weight",
+        type=float,
+        default=0.25,
+        help="minimum large-diagram weight to include in large-space threshold checks",
+    )
+    parser.add_argument(
+        "--threshold-engine",
+        choices=["auto", "mmdr", "mermaid_cli"],
+        default="auto",
+        help="engine used for threshold checks (default: auto prefers mmdr)",
+    )
+    parser.add_argument(
+        "--max-flowchart-crossings-per-edge",
+        type=float,
+        default=None,
+        help="fail if large-flowchart crossings-per-edge exceeds this value",
+    )
     args = parser.parse_args()
     run_started_at = iso_utc_now()
     run_started_epoch = time.time()
@@ -2409,6 +2642,7 @@ def main():
         files = files[: args.limit]
     if patterns:
         files = [f for f in files if any(p.search(str(f)) for p in patterns)]
+    fixture_kinds = {str(path): detect_diagram_kind(path) for path in files}
 
     results = {}
     if args.engine in {"mmdr", "both"}:
@@ -2469,6 +2703,19 @@ def main():
             print(f"mmdr: avg wasted space ratio: {mmdr_waste:.3f}")
         if mmdc_waste_count:
             print(f"mermaid-cli: avg wasted space ratio: {mmdc_waste:.3f}")
+        mmdr_waste_large, mmdr_waste_large_count = summarize_metric(
+            results.get("mmdr", {}), "wasted_space_large_ratio"
+        )
+        mmdc_waste_large, mmdc_waste_large_count = summarize_metric(
+            results.get("mermaid_cli", {}), "wasted_space_large_ratio"
+        )
+        if mmdr_waste_large_count:
+            print(f"mmdr: avg wasted space ratio (large diagrams): {mmdr_waste_large:.3f}")
+        if mmdc_waste_large_count:
+            print(
+                "mermaid-cli: avg wasted space ratio (large diagrams): "
+                f"{mmdc_waste_large:.3f}"
+            )
         mmdr_detour, mmdr_detour_count = summarize_metric(results.get("mmdr", {}), "avg_edge_detour_ratio")
         mmdc_detour, mmdc_detour_count = summarize_metric(results.get("mermaid_cli", {}), "avg_edge_detour_ratio")
         if mmdr_detour_count:
@@ -2611,11 +2858,23 @@ def main():
         mmdc_label_clearance, mmdc_label_clearance_count = summarize_metric(
             results.get("mermaid_cli", {}), "edge_label_path_clearance_score_mean"
         )
+        mmdr_label_optimal, mmdr_label_optimal_count = summarize_metric(
+            results.get("mmdr", {}), "edge_label_path_optimal_gap_score_mean"
+        )
+        mmdc_label_optimal, mmdc_label_optimal_count = summarize_metric(
+            results.get("mermaid_cli", {}), "edge_label_path_optimal_gap_score_mean"
+        )
         mmdr_label_nontouch, mmdr_label_nontouch_count = summarize_metric(
             results.get("mmdr", {}), "edge_label_path_non_touch_ratio"
         )
         mmdc_label_nontouch, mmdc_label_nontouch_count = summarize_metric(
             results.get("mermaid_cli", {}), "edge_label_path_non_touch_ratio"
+        )
+        mmdr_label_too_close, mmdr_label_too_close_count = summarize_metric(
+            results.get("mmdr", {}), "edge_label_path_too_close_ratio"
+        )
+        mmdc_label_too_close, mmdc_label_too_close_count = summarize_metric(
+            results.get("mermaid_cli", {}), "edge_label_path_too_close_ratio"
         )
         mmdr_label_owned_gap, mmdr_label_owned_gap_count = summarize_metric(
             results.get("mmdr", {}), "edge_label_owned_path_gap_mean"
@@ -2641,6 +2900,18 @@ def main():
         mmdc_label_owned_clearance, mmdc_label_owned_clearance_count = summarize_metric(
             results.get("mermaid_cli", {}), "edge_label_owned_path_clearance_score_mean"
         )
+        mmdr_label_owned_optimal, mmdr_label_owned_optimal_count = summarize_metric(
+            results.get("mmdr", {}), "edge_label_owned_path_optimal_gap_score_mean"
+        )
+        mmdc_label_owned_optimal, mmdc_label_owned_optimal_count = summarize_metric(
+            results.get("mermaid_cli", {}), "edge_label_owned_path_optimal_gap_score_mean"
+        )
+        mmdr_label_owned_too_close, mmdr_label_owned_too_close_count = summarize_metric(
+            results.get("mmdr", {}), "edge_label_owned_path_too_close_ratio"
+        )
+        mmdc_label_owned_too_close, mmdc_label_owned_too_close_count = summarize_metric(
+            results.get("mermaid_cli", {}), "edge_label_owned_path_too_close_ratio"
+        )
         mmdr_label_owned_anchor_bad, mmdr_label_owned_anchor_bad_count = summarize_metric(
             results.get("mmdr", {}), "edge_label_owned_anchor_offset_bad_ratio"
         )
@@ -2657,6 +2928,8 @@ def main():
             {
                 "mmdr_avg_wasted_space_ratio": mmdr_waste,
                 "mermaid_cli_avg_wasted_space_ratio": mmdc_waste,
+                "mmdr_avg_wasted_space_large_ratio": mmdr_waste_large,
+                "mermaid_cli_avg_wasted_space_large_ratio": mmdc_waste_large,
                 "mmdr_avg_edge_detour_ratio": mmdr_detour,
                 "mermaid_cli_avg_edge_detour_ratio": mmdc_detour,
                 "mmdr_avg_component_gap_ratio": mmdr_comp_gap,
@@ -2689,8 +2962,12 @@ def main():
                 "mermaid_cli_avg_edge_label_path_gap": mmdc_label_gap,
                 "mmdr_avg_edge_label_clearance_score": mmdr_label_clearance,
                 "mermaid_cli_avg_edge_label_clearance_score": mmdc_label_clearance,
+                "mmdr_avg_edge_label_optimal_gap_score": mmdr_label_optimal,
+                "mermaid_cli_avg_edge_label_optimal_gap_score": mmdc_label_optimal,
                 "mmdr_avg_edge_label_non_touch_ratio": mmdr_label_nontouch,
                 "mermaid_cli_avg_edge_label_non_touch_ratio": mmdc_label_nontouch,
+                "mmdr_avg_edge_label_too_close_ratio": mmdr_label_too_close,
+                "mermaid_cli_avg_edge_label_too_close_ratio": mmdc_label_too_close,
                 "mmdr_avg_edge_label_owned_path_gap": mmdr_label_owned_gap,
                 "mermaid_cli_avg_edge_label_owned_path_gap": mmdc_label_owned_gap,
                 "mmdr_avg_edge_label_owned_path_touch_ratio": mmdr_label_owned_touch,
@@ -2699,6 +2976,10 @@ def main():
                 "mermaid_cli_avg_edge_label_owned_mapping_ratio": mmdc_label_owned_map,
                 "mmdr_avg_edge_label_owned_clearance_score": mmdr_label_owned_clearance,
                 "mermaid_cli_avg_edge_label_owned_clearance_score": mmdc_label_owned_clearance,
+                "mmdr_avg_edge_label_owned_optimal_gap_score": mmdr_label_owned_optimal,
+                "mermaid_cli_avg_edge_label_owned_optimal_gap_score": mmdc_label_owned_optimal,
+                "mmdr_avg_edge_label_owned_too_close_ratio": mmdr_label_owned_too_close,
+                "mermaid_cli_avg_edge_label_owned_too_close_ratio": mmdc_label_owned_too_close,
                 "mmdr_avg_edge_label_owned_anchor_offset_bad_ratio": mmdr_label_owned_anchor_bad,
                 "mermaid_cli_avg_edge_label_owned_anchor_offset_bad_ratio": mmdc_label_owned_anchor_bad,
                 "mmdr_avg_edge_label_owned_anchor_offset_px": mmdr_label_owned_anchor_px,
@@ -2710,28 +2991,42 @@ def main():
         if mmdc_label_align_count:
             print(f"mermaid-cli: avg edge-label distance to nearest edge: {mmdc_label_align:.3f}")
         if mmdr_label_gap_count:
-            print(f"mmdr: avg edge-label path gap (0=touching): {mmdr_label_gap:.3f}")
+            print(f"mmdr: avg edge-label path gap (px): {mmdr_label_gap:.3f}")
         if mmdc_label_gap_count:
-            print(f"mermaid-cli: avg edge-label path gap (0=touching): {mmdc_label_gap:.3f}")
+            print(f"mermaid-cli: avg edge-label path gap (px): {mmdc_label_gap:.3f}")
         if mmdr_label_clearance_count:
             print(
                 "mmdr: avg edge-label clearance score "
-                f"(touch=1, decays away from path): {mmdr_label_clearance:.3f}"
+                f"(legacy): {mmdr_label_clearance:.3f}"
             )
         if mmdc_label_clearance_count:
             print(
                 "mermaid-cli: avg edge-label clearance score "
-                f"(touch=1, decays away from path): {mmdc_label_clearance:.3f}"
+                f"(legacy): {mmdc_label_clearance:.3f}"
+            )
+        if mmdr_label_optimal_count:
+            print(
+                "mmdr: avg edge-label optimal-gap score "
+                f"(1 = ideal clearance): {mmdr_label_optimal:.3f}"
+            )
+        if mmdc_label_optimal_count:
+            print(
+                "mermaid-cli: avg edge-label optimal-gap score "
+                f"(1 = ideal clearance): {mmdc_label_optimal:.3f}"
             )
         if mmdr_label_nontouch_count:
             print(f"mmdr: avg edge-label non-touch ratio: {mmdr_label_nontouch:.3f}")
         if mmdc_label_nontouch_count:
             print(f"mermaid-cli: avg edge-label non-touch ratio: {mmdc_label_nontouch:.3f}")
+        if mmdr_label_too_close_count:
+            print(f"mmdr: avg edge-label too-close ratio: {mmdr_label_too_close:.3f}")
+        if mmdc_label_too_close_count:
+            print(f"mermaid-cli: avg edge-label too-close ratio: {mmdc_label_too_close:.3f}")
         if mmdr_label_owned_gap_count:
-            print(f"mmdr: avg owned edge-label path gap (0=touching): {mmdr_label_owned_gap:.3f}")
+            print(f"mmdr: avg owned edge-label path gap (px): {mmdr_label_owned_gap:.3f}")
         if mmdc_label_owned_gap_count:
             print(
-                f"mermaid-cli: avg owned edge-label path gap (0=touching): {mmdc_label_owned_gap:.3f}"
+                f"mermaid-cli: avg owned edge-label path gap (px): {mmdc_label_owned_gap:.3f}"
             )
         if mmdr_label_owned_touch_count:
             print(f"mmdr: avg owned edge-label touch ratio: {mmdr_label_owned_touch:.3f}")
@@ -2740,12 +3035,32 @@ def main():
         if mmdr_label_owned_clearance_count:
             print(
                 "mmdr: avg owned edge-label clearance score "
-                f"(touch=1, decays away from path): {mmdr_label_owned_clearance:.3f}"
+                f"(legacy): {mmdr_label_owned_clearance:.3f}"
             )
         if mmdc_label_owned_clearance_count:
             print(
                 "mermaid-cli: avg owned edge-label clearance score "
-                f"(touch=1, decays away from path): {mmdc_label_owned_clearance:.3f}"
+                f"(legacy): {mmdc_label_owned_clearance:.3f}"
+            )
+        if mmdr_label_owned_optimal_count:
+            print(
+                "mmdr: avg owned edge-label optimal-gap score "
+                f"(1 = ideal clearance): {mmdr_label_owned_optimal:.3f}"
+            )
+        if mmdc_label_owned_optimal_count:
+            print(
+                "mermaid-cli: avg owned edge-label optimal-gap score "
+                f"(1 = ideal clearance): {mmdc_label_owned_optimal:.3f}"
+            )
+        if mmdr_label_owned_too_close_count:
+            print(
+                "mmdr: avg owned edge-label too-close ratio: "
+                f"{mmdr_label_owned_too_close:.3f}"
+            )
+        if mmdc_label_owned_too_close_count:
+            print(
+                "mermaid-cli: avg owned edge-label too-close ratio: "
+                f"{mmdc_label_owned_too_close:.3f}"
             )
         if mmdr_label_owned_map_count:
             print(f"mmdr: avg owned edge-label mapping ratio: {mmdr_label_owned_map:.3f}")
@@ -2818,6 +3133,19 @@ def main():
                     f"(wasted={metrics.get('wasted_space_ratio', 0.0):.2f}, "
                     f"fill={metrics.get('content_fill_ratio', 0.0):.2f})"
                 )
+            by_space_large = sorted(
+                scored,
+                key=lambda kv: kv[1].get("wasted_space_large_ratio", 0.0),
+                reverse=True,
+            )[:5]
+            print("Worst 5 by wasted-space ratio (large diagrams):")
+            for name, metrics in by_space_large:
+                print(
+                    "  "
+                    f"{name}: wasted-large={metrics.get('wasted_space_large_ratio', 0.0):.3f} "
+                    f"(weight={metrics.get('large_diagram_space_weight', 0.0):.2f}, "
+                    f"raw-wasted={metrics.get('wasted_space_ratio', 0.0):.2f})"
+                )
             by_detour = sorted(
                 scored,
                 key=lambda kv: kv[1].get("avg_edge_detour_ratio", 1.0),
@@ -2850,6 +3178,23 @@ def main():
                     f"{name}: intersections={metrics.get('arrow_path_intersections', 0)}, "
                     f"overlap={metrics.get('arrow_path_overlap_length', 0.0):.2f}"
                 )
+            by_cross_density = sorted(
+                scored,
+                key=lambda kv: (
+                    kv[1].get("svg_edge_crossings", 0.0)
+                    / max(kv[1].get("edge_count", 1.0), 1.0)
+                ),
+                reverse=True,
+            )[:5]
+            print("Worst 5 by crossings per edge:")
+            for name, metrics in by_cross_density:
+                edge_count = max(metrics.get("edge_count", 1.0), 1.0)
+                crossing_density = metrics.get("svg_edge_crossings", 0.0) / edge_count
+                print(
+                    "  "
+                    f"{name}: crossings/edge={crossing_density:.3f} "
+                    f"(crossings={metrics.get('svg_edge_crossings', 0)}, edges={int(edge_count)})"
+                )
             by_label_alignment = sorted(
                 scored,
                 key=lambda kv: kv[1].get("edge_label_alignment_bad_count", 0.0),
@@ -2864,39 +3209,78 @@ def main():
                 )
             by_label_gap = sorted(
                 scored,
-                key=lambda kv: kv[1].get("edge_label_path_gap_mean", 0.0),
+                key=lambda kv: effective_label_quality_metrics(
+                    kv[1], fixture_kinds.get(kv[0], "")
+                )["gap_mean"],
                 reverse=True,
             )[:5]
-            print("Worst 5 by edge-label path gap (0 = touching):")
+            print("Worst 5 by edge-label path gap:")
             for name, metrics in by_label_gap:
+                effective = effective_label_quality_metrics(
+                    metrics, fixture_kinds.get(name, "")
+                )
                 print(
                     "  "
-                    f"{name}: gap_mean={metrics.get('edge_label_path_gap_mean', 0.0):.2f}, "
-                    f"touch_ratio={metrics.get('edge_label_path_touch_ratio', 0.0):.3f}"
+                    f"{name}: gap_mean={effective['gap_mean']:.2f}, "
+                    f"too_close={effective['too_close_ratio']:.3f}, "
+                    f"source={effective['source']}"
                 )
-            by_clearance_score = sorted(
+            by_optimal_score = sorted(
                 scored,
-                key=lambda kv: kv[1].get("edge_label_path_clearance_score_mean", 0.0),
+                key=lambda kv: effective_label_quality_metrics(
+                    kv[1], fixture_kinds.get(kv[0], "")
+                )["optimal_gap_score"],
             )[:5]
-            print("Worst 5 by edge-label clearance score (touch = 1):")
-            for name, metrics in by_clearance_score:
+            print("Worst 5 by edge-label optimal-gap score:")
+            for name, metrics in by_optimal_score:
+                effective = effective_label_quality_metrics(
+                    metrics, fixture_kinds.get(name, "")
+                )
                 print(
                     "  "
-                    f"{name}: score={metrics.get('edge_label_path_clearance_score_mean', 0.0):.3f}, "
-                    f"non_touch={metrics.get('edge_label_path_non_touch_ratio', 0.0):.3f}"
+                    f"{name}: score={effective['optimal_gap_score']:.3f}, "
+                    f"too_close={effective['too_close_ratio']:.3f}, "
+                    f"source={effective['source']}"
                 )
-            by_owned_touch = sorted(
+            by_owned_too_close = sorted(
                 scored,
-                key=lambda kv: kv[1].get("edge_label_owned_path_touch_ratio", 0.0),
+                key=lambda kv: kv[1].get("edge_label_owned_path_too_close_ratio", 0.0),
                 reverse=True,
             )[:5]
-            print("Worst 5 by owned edge-label touch ratio (touch = 1):")
-            for name, metrics in by_owned_touch:
+            print("Worst 5 by owned edge-label too-close ratio:")
+            for name, metrics in by_owned_too_close:
                 print(
                     "  "
-                    f"{name}: touch_ratio={metrics.get('edge_label_owned_path_touch_ratio', 0.0):.3f}, "
+                    f"{name}: too_close={metrics.get('edge_label_owned_path_too_close_ratio', 0.0):.3f}, "
                     f"mapping={metrics.get('edge_label_owned_mapping_ratio', 0.0):.3f}"
                 )
+
+    threshold_breaches = []
+    if (
+        args.max_sequence_too_close is not None
+        or args.max_large_space_ratio is not None
+        or args.max_flowchart_crossings_per_edge is not None
+    ):
+        if args.threshold_engine == "auto":
+            threshold_engine = "mmdr" if "mmdr" in results else "mermaid_cli"
+        else:
+            threshold_engine = args.threshold_engine
+        engine_results = results.get(threshold_engine, {})
+        threshold_breaches = evaluate_thresholds(
+            threshold_engine,
+            engine_results,
+            fixture_kinds,
+            max_sequence_too_close=args.max_sequence_too_close,
+            max_large_space_ratio=args.max_large_space_ratio,
+            min_large_space_weight=args.min_large_space_weight,
+            max_flowchart_crossings_per_edge=args.max_flowchart_crossings_per_edge,
+        )
+        if threshold_breaches:
+            print("Threshold failures:")
+            for breach in threshold_breaches:
+                print(f"- {breach}")
+        else:
+            print("Threshold checks: all passed")
 
     if not args.no_history_log:
         history_path = Path(args.history_log)
@@ -2918,6 +3302,11 @@ def main():
                 "mmdr_jobs": max(1, args.mmdr_jobs),
                 "mmdc_cache_dir": str(Path(args.mmdc_cache_dir)),
                 "mmdc_cache_enabled": (not args.no_mmdc_cache),
+                "max_sequence_too_close": args.max_sequence_too_close,
+                "max_large_space_ratio": args.max_large_space_ratio,
+                "min_large_space_weight": args.min_large_space_weight,
+                "max_flowchart_crossings_per_edge": args.max_flowchart_crossings_per_edge,
+                "threshold_engine": args.threshold_engine,
             },
             "host": host_info,
             "git": git_info,
@@ -2928,7 +3317,12 @@ def main():
             record["comparison"] = comparison_stats
         if weighted_stats:
             record["weighted_dominance"] = weighted_stats
+        if threshold_breaches:
+            record["threshold_breaches"] = threshold_breaches
         append_benchmark_history(history_path, record)
+
+    if threshold_breaches:
+        sys.exit(2)
 
 
 if __name__ == "__main__":

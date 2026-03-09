@@ -73,7 +73,8 @@ python3 scripts/priority_bench.py --pattern flowchart --weight-mode manual
 The script writes a machine-readable report to `target/priority-bench.json` and prints:
 - top fixtures by quality pain
 - top quick wins by pain-per-layout-millisecond
-- top fixtures by space inefficiency (wasted space, component gap, center offset)
+- top fixtures by space inefficiency (large-diagram-weighted wasted space, component gap, center offset)
+- per-fixture crossing density (`cross/edge`) to normalize readability hotspots across diagram sizes
 
 Recent stress fixtures for visual quality include:
 - `benches/fixtures/flowchart_ports_heavy.mmd`
@@ -162,10 +163,56 @@ This benchmark reports `edge_label_path_gap_*` metrics where:
 - `edge_label_path_gap_p95`: 95th percentile gap
 - `edge_label_path_touch_ratio`: fraction of labels touching their nearest edge path (`0` gap)
 - `edge_label_path_non_touch_ratio`: fraction of labels not touching their nearest edge path (`1 - touch_ratio`)
-- `edge_label_path_clearance_score_mean`: average clearance quality score in `[0,1]`
-  where touching scores `0` and score peaks near a small positive clearance band
-- `edge_label_path_in_band_ratio`: fraction of labels in the target clearance band (`1px..6px`)
+- `edge_label_path_optimal_gap_score_mean`: average optimal-gap quality score in `[0,1]`
+  where `1` means diagram-specific ideal clearance from the edge path
+- `edge_label_path_too_close_ratio`: fraction of labels that are too close to the path
+  (for sequence diagrams, this captures line-through-label cases)
+- `edge_label_path_in_band_ratio`: fraction of labels in the diagram-specific target clearance band
 - `edge_label_path_gap_bad_ratio`: fraction of labels beyond diagram-specific gap thresholds
+
+Scoring model notes:
+- Sequence diagrams use label-kind-aware clearance targets:
+  center message labels prefer a stable positive offset above the path, while
+  start/end endpoint labels use a smaller near-path target.
+- Flowchart/class/state/ER keep a near-path target band by default.
+- Sequence benchmark summaries and threshold checks prefer owned edge-label
+  metrics when mapping coverage is high, reducing false positives from
+  unrelated nearby message lines.
+
+## Large-Diagram Space Benchmark
+
+To prioritize whitespace waste only when diagrams are large, use:
+
+```bash
+python3 scripts/priority_bench.py --pattern flowchart --top 10
+```
+
+Key large-space metrics:
+- `large_diagram_space_weight`: `0..1` scale factor (near `0` for small diagrams)
+- `wasted_space_large_ratio`: `wasted_space_ratio * large_diagram_space_weight`
+- `space_efficiency_large_penalty`: `space_efficiency_penalty * large_diagram_space_weight`
+- `component_gap_large_ratio`: `component_gap_ratio * large_diagram_space_weight`
+
+`priority_bench` now ranks “space inefficiency” using these large-diagram-weighted
+terms first, so small fixtures do not dominate whitespace regressions.
+It also prints a dedicated section: `Top by large-diagram unused space`.
+
+Optional quality gates in `quality_bench.py`:
+
+```bash
+python3 scripts/quality_bench.py \
+  --engine mmdr \
+  --max-sequence-too-close 0.05 \
+  --max-large-space-ratio 0.20 \
+  --max-flowchart-crossings-per-edge 1.50 \
+  --min-large-space-weight 0.25
+```
+
+- `--max-sequence-too-close`: fails if any sequence fixture exceeds the ratio,
+  preferring explicitly owned edge-label mapping metrics when available.
+- `--max-large-space-ratio`: fails if any sufficiently large fixture exceeds weighted waste.
+- `--max-flowchart-crossings-per-edge`: fails if large flowcharts exceed crossing density.
+- `--min-large-space-weight`: excludes small diagrams from the large-space gate.
 
 Candidate selection details:
 - If explicit edge-label boxes are present in SVG, only those boxes are scored.

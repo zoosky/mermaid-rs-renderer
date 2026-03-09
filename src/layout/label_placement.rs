@@ -14,6 +14,7 @@ const LABEL_ANCHOR_POS_EPS: f32 = 1.0;
 const LABEL_ANCHOR_DIR_EPS: f32 = 0.02;
 const LABEL_EXTRA_SEGMENT_ANCHORS: usize = 6;
 const FLOWCHART_LABEL_CLEARANCE_PAD: f32 = 1.5;
+const FLOWCHART_LABEL_SOFT_GAP: f32 = 6.0;
 
 type Rect = (f32, f32, f32, f32);
 type EdgeObstacle = (usize, Rect);
@@ -144,9 +145,8 @@ pub fn resolve_all_label_positions(
     theme: &Theme,
     config: &LayoutConfig,
 ) {
-    // Sequence and ZenUML diagrams place labels inline with trivial midpoint
-    // math in the renderer — skip them.
     if layout.kind == DiagramKind::Sequence || layout.kind == DiagramKind::ZenUML {
+        super::sequence::resolve_sequence_label_positions(layout, theme);
         return;
     }
 
@@ -188,8 +188,8 @@ fn resolve_center_labels(
     let (label_pad_x, label_pad_y) = edge_label_padding(kind, config);
     let node_obstacle_pad = center_label_node_obstacle_pad(kind, theme, label_pad_x, label_pad_y);
     let edge_obstacle_pad = (theme.font_size * 0.35).max(label_pad_y);
-    let step_normal_pad = (theme.font_size * 0.25).max(label_pad_y);
-    let step_tangent_pad = (theme.font_size * 0.35).max(label_pad_x);
+    let step_normal_pad = (theme.font_size * 0.22).max(label_pad_y);
+    let step_tangent_pad = (theme.font_size * 0.28).max(label_pad_x);
     let subgraph_label_pad = (theme.font_size * 0.35).max(3.0);
 
     let mut occupied: Vec<Rect> = build_label_obstacles(
@@ -299,10 +299,10 @@ fn resolve_center_labels(
         let edge = &edges[idx];
         let mut anchors: Vec<(f32, f32, f32, f32)> = Vec::new();
 
-        if let Some((ax, ay)) = edges[idx].label_anchor {
-            if let Some(candidate) = edge_label_anchor_from_point(edge, (ax, ay)) {
-                push_anchor_unique(&mut anchors, candidate);
-            }
+        if let Some((ax, ay)) = edges[idx].label_anchor
+            && let Some(candidate) = edge_label_anchor_from_point(edge, (ax, ay))
+        {
+            push_anchor_unique(&mut anchors, candidate);
         }
         if let Some(bundle_fraction) = bundle_fractions.get(idx).and_then(|fraction| *fraction) {
             let side_bias = [0.0, -0.08, 0.08];
@@ -363,6 +363,17 @@ fn resolve_center_labels(
         let mut best_pos = (anchors[0].0, anchors[0].1);
         let mut best_penalty = (f32::INFINITY, f32::INFINITY);
         let center_max_gap = center_label_hard_max_gap(kind);
+        let penalty_ctx = LabelPenaltyContext {
+            kind,
+            occupied: &occupied,
+            occupied_grid: &occupied_grid,
+            node_obstacle_count,
+            edge_obstacles: &edge_obstacles,
+            edge_grid: &edge_grid,
+            edge_idx: idx,
+            own_edge_points: &edge.points,
+            bounds,
+        };
         let evaluate_candidates = |anchor: (f32, f32, f32, f32),
                                    tangents: &[f32],
                                    normals: &[f32],
@@ -418,15 +429,7 @@ fn resolve_center_labels(
                     (anchor_x, anchor_y),
                     label.width,
                     label.height,
-                    kind,
-                    &occupied,
-                    &occupied_grid,
-                    node_obstacle_count,
-                    &edge_obstacles,
-                    &edge_grid,
-                    idx,
-                    &edge.points,
-                    bounds,
+                    &penalty_ctx,
                 );
                 let overlap_pressure = penalty.0;
                 let edge_dist = point_polyline_distance(center, &edge.points);
@@ -497,8 +500,8 @@ fn resolve_center_labels(
         for anchor in &anchors {
             if evaluate_candidates(
                 *anchor,
-                &tangent_steps,
-                &normal_steps,
+                tangent_steps,
+                normal_steps,
                 center_max_gap,
                 &mut best_penalty,
                 &mut best_pos,
@@ -510,8 +513,8 @@ fn resolve_center_labels(
             for anchor in &anchors {
                 evaluate_candidates(
                     *anchor,
-                    &tangent_steps,
-                    &normal_steps,
+                    tangent_steps,
+                    normal_steps,
                     None,
                     &mut best_penalty,
                     &mut best_pos,
@@ -554,8 +557,8 @@ fn resolve_center_labels(
             for anchor in &anchors {
                 if evaluate_candidates(
                     *anchor,
-                    &tangent_steps_wide,
-                    &normal_steps_wide,
+                    tangent_steps_wide,
+                    normal_steps_wide,
                     center_max_gap,
                     &mut best_penalty,
                     &mut best_pos,
@@ -567,8 +570,8 @@ fn resolve_center_labels(
                 for anchor in &anchors {
                     evaluate_candidates(
                         *anchor,
-                        &tangent_steps_wide,
-                        &normal_steps_wide,
+                        tangent_steps_wide,
+                        normal_steps_wide,
                         None,
                         &mut best_penalty,
                         &mut best_pos,
@@ -618,6 +621,17 @@ fn resolve_center_labels(
     }
 
     tighten_center_label_gaps(
+        edges,
+        nodes,
+        subgraphs,
+        bounds,
+        kind,
+        theme,
+        label_pad_x,
+        label_pad_y,
+        &fixed_center_indices,
+    );
+    enforce_center_label_attachment_caps(
         edges,
         nodes,
         subgraphs,
@@ -1315,20 +1329,23 @@ fn tighten_center_label_gaps(
             let current_anchor = edge_label_anchor_from_point(&edges[idx], current_center)
                 .unwrap_or_else(|| edge_label_anchor(&edges[idx]));
             let current_gap = polyline_rect_distance(&edge_points, &current_rect);
+            let penalty_ctx = LabelPenaltyContext {
+                kind,
+                occupied: &occupied,
+                occupied_grid: &occupied_grid,
+                node_obstacle_count,
+                edge_obstacles: &edge_obstacles,
+                edge_grid: &edge_grid,
+                edge_idx: idx,
+                own_edge_points: &edge_points,
+                bounds,
+            };
             let mut current_cost = label_penalties(
                 current_rect,
                 (current_anchor.0, current_anchor.1),
                 label.width,
                 label.height,
-                kind,
-                &occupied,
-                &occupied_grid,
-                node_obstacle_count,
-                &edge_obstacles,
-                &edge_grid,
-                idx,
-                &edge_points,
-                bounds,
+                &penalty_ctx,
             );
             current_cost.0 +=
                 center_label_gap_penalty(current_gap, target_gap, soft_max_gap, hard_max_gap);
@@ -1373,15 +1390,7 @@ fn tighten_center_label_gaps(
                     (anchor.0, anchor.1),
                     label.width,
                     label.height,
-                    kind,
-                    &occupied,
-                    &occupied_grid,
-                    node_obstacle_count,
-                    &edge_obstacles,
-                    &edge_grid,
-                    idx,
-                    &edge_points,
-                    bounds,
+                    &penalty_ctx,
                 );
                 cost.0 += center_label_gap_penalty(gap, target_gap, soft_max_gap, hard_max_gap);
                 let dx = center.0 - current_center.0;
@@ -1437,6 +1446,185 @@ fn tighten_center_label_gaps(
         }
         if !moved {
             break;
+        }
+    }
+}
+
+fn center_label_attachment_cap(kind: DiagramKind) -> Option<f32> {
+    match kind {
+        DiagramKind::Flowchart | DiagramKind::Sequence | DiagramKind::ZenUML => None,
+        DiagramKind::Er => Some(12.0),
+        DiagramKind::Class => Some(10.0),
+        DiagramKind::State => Some(11.0),
+        _ => Some(12.0),
+    }
+}
+
+fn enforce_center_label_attachment_caps(
+    edges: &mut [EdgeLayout],
+    nodes: &BTreeMap<String, NodeLayout>,
+    subgraphs: &[SubgraphLayout],
+    bounds: Option<(f32, f32)>,
+    kind: DiagramKind,
+    theme: &Theme,
+    label_pad_x: f32,
+    label_pad_y: f32,
+    locked_indices: &HashSet<usize>,
+) {
+    let Some(max_gap) = center_label_attachment_cap(kind) else {
+        return;
+    };
+    if edges
+        .iter()
+        .all(|edge| edge.label.is_none() || edge.label_anchor.is_none())
+    {
+        return;
+    }
+
+    let node_obstacle_pad = center_label_node_obstacle_pad(kind, theme, label_pad_x, label_pad_y);
+    let subgraph_label_pad = (theme.font_size * 0.35).max(3.0);
+    let static_obstacles = build_label_obstacles(
+        nodes,
+        subgraphs,
+        kind,
+        theme,
+        node_obstacle_pad,
+        subgraph_label_pad,
+    );
+    let nudge_weight = if kind == DiagramKind::Er { 0.04 } else { 0.06 };
+
+    for _ in 0..2 {
+        let current_label_rects: Vec<Option<Rect>> = edges
+            .iter()
+            .map(|edge| {
+                let (Some(label), Some(center)) = (&edge.label, edge.label_anchor) else {
+                    return None;
+                };
+                Some((
+                    center.0 - label.width * 0.5 - label_pad_x,
+                    center.1 - label.height * 0.5 - label_pad_y,
+                    label.width + 2.0 * label_pad_x,
+                    label.height + 2.0 * label_pad_y,
+                ))
+            })
+            .collect();
+
+        for (idx, edge) in edges.iter_mut().enumerate() {
+            if locked_indices.contains(&idx) {
+                continue;
+            }
+            let (Some(label), Some(center)) = (&edge.label, edge.label_anchor) else {
+                continue;
+            };
+            let current_rect = (
+                center.0 - label.width * 0.5 - label_pad_x,
+                center.1 - label.height * 0.5 - label_pad_y,
+                label.width + 2.0 * label_pad_x,
+                label.height + 2.0 * label_pad_y,
+            );
+            let current_gap = polyline_rect_distance(&edge.points, &current_rect);
+            let current_center_dist = point_polyline_distance(center, &edge.points);
+            if !current_gap.is_finite() || !current_center_dist.is_finite() {
+                continue;
+            }
+            if current_gap <= max_gap + 0.05 && current_center_dist <= max_gap + 0.05 {
+                continue;
+            }
+            let Some((anchor_x, anchor_y, dir_x, dir_y)) =
+                edge_label_anchor_from_point(edge, center).or(Some(edge_label_anchor(edge)))
+            else {
+                continue;
+            };
+            let normal_x = -dir_y;
+            let normal_y = dir_x;
+            let sign = {
+                let rel_x = center.0 - anchor_x;
+                let rel_y = center.1 - anchor_y;
+                if rel_x * normal_x + rel_y * normal_y >= 0.0 {
+                    1.0
+                } else {
+                    -1.0
+                }
+            };
+            let target_gap =
+                edge_target_distance(kind, label.height, label_pad_y).clamp(1.2, max_gap * 0.75);
+            let offsets = [
+                target_gap,
+                (target_gap * 0.72).max(0.9),
+                (target_gap * 1.24).min(max_gap * 0.92),
+                0.0,
+            ];
+
+            let mut candidates: Vec<(f32, f32)> = Vec::new();
+            for offset in offsets {
+                for side in [sign, -sign] {
+                    let mut cand = (
+                        anchor_x + normal_x * offset * side,
+                        anchor_y + normal_y * offset * side,
+                    );
+                    if let Some(bound) = bounds {
+                        cand = clamp_label_center_to_bounds(
+                            cand,
+                            label.width,
+                            label.height,
+                            label_pad_x,
+                            label_pad_y,
+                            bound,
+                        );
+                    }
+                    push_center_unique(&mut candidates, cand);
+                }
+            }
+            push_center_unique(&mut candidates, center);
+            if candidates.is_empty() {
+                continue;
+            }
+
+            let mut best = center;
+            let mut best_score = f32::INFINITY;
+            for cand in candidates {
+                let rect = (
+                    cand.0 - label.width * 0.5 - label_pad_x,
+                    cand.1 - label.height * 0.5 - label_pad_y,
+                    label.width + 2.0 * label_pad_x,
+                    label.height + 2.0 * label_pad_y,
+                );
+                let gap = polyline_rect_distance(&edge.points, &rect);
+                let center_dist = point_polyline_distance(cand, &edge.points);
+                if !gap.is_finite() {
+                    continue;
+                }
+                let mut overlap = 0.0f32;
+                for obstacle in &static_obstacles {
+                    overlap += overlap_area(&rect, obstacle);
+                }
+                for (other_idx, other_rect_opt) in current_label_rects.iter().enumerate() {
+                    if other_idx == idx {
+                        continue;
+                    }
+                    if let Some(other_rect) = other_rect_opt {
+                        overlap += overlap_area(&rect, other_rect);
+                    }
+                }
+                if let Some(bound) = bounds {
+                    overlap += outside_area(&rect, bound);
+                }
+                let gap_over = (gap - max_gap).max(0.0);
+                let move_dx = cand.0 - center.0;
+                let move_dy = cand.1 - center.1;
+                let move_dist = (move_dx * move_dx + move_dy * move_dy).sqrt();
+                let center_over = (center_dist - max_gap).max(0.0);
+                let score = gap_over * 32.0
+                    + center_over * 40.0
+                    + (gap - target_gap).abs() * 0.9
+                    + overlap * 0.06
+                    + move_dist * nudge_weight;
+                if score < best_score {
+                    best_score = score;
+                    best = cand;
+                }
+            }
+            edge.label_anchor = Some(best);
         }
     }
 }
@@ -2132,10 +2320,12 @@ fn flowchart_center_label_candidates(
     }
 
     let normal_steps: &[f32] = &[
-        0.6, -0.6, 1.0, -1.0, 1.4, -1.4, 0.35, -0.35, 2.0, -2.0, 2.8, -2.8, 4.0, -4.0, 5.2, -5.2,
-        6.5, -6.5, 8.2, -8.2, 10.0, -10.0, 0.0,
+        0.45, -0.45, 0.8, -0.8, 1.2, -1.2, 0.25, -0.25, 1.8, -1.8, 2.5, -2.5, 3.4, -3.4, 4.4, -4.4,
+        5.6, -5.6, 7.0, -7.0, 0.0,
     ];
-    let tangent_steps: &[f32] = &[0.0, 0.3, -0.3, 0.8, -0.8, 1.4, -1.4, 2.2, -2.2, 3.2, -3.2];
+    let tangent_steps: &[f32] = &[
+        0.0, 0.22, -0.22, 0.55, -0.55, 1.0, -1.0, 1.6, -1.6, 2.3, -2.3, 2.8, -2.8,
+    ];
     for (anchor_x, anchor_y, dir_x, dir_y) in anchors {
         let normal_x = -dir_y;
         let normal_y = dir_x;
@@ -2192,26 +2382,45 @@ fn flowchart_center_label_refine_cost(
 
     let mut overlap_area_sum = 0.0f32;
     let mut overlap_count = 0u32;
+    let mut near_overlap_gap_sum = 0.0f32;
     for other in others {
         let ov = overlap_area(&obstacle_rect, other);
         if ov > 0.0 {
             overlap_area_sum += ov;
             overlap_count += 1;
+            continue;
+        }
+        let gap = rect_gap(&obstacle_rect, other);
+        if gap < FLOWCHART_LABEL_SOFT_GAP {
+            near_overlap_gap_sum += FLOWCHART_LABEL_SOFT_GAP - gap;
         }
     }
 
     let mut fixed_overlap_area = 0.0f32;
     let mut fixed_overlap_count = 0u32;
+    let mut fixed_near_gap_sum = 0.0f32;
     for obstacle in fixed_obstacles {
         let ov = overlap_area(&obstacle_rect, obstacle);
         if ov > 0.0 {
             fixed_overlap_area += ov;
             fixed_overlap_count += 1;
+            continue;
+        }
+        let gap = rect_gap(&obstacle_rect, obstacle);
+        if gap < FLOWCHART_LABEL_SOFT_GAP {
+            fixed_near_gap_sum += FLOWCHART_LABEL_SOFT_GAP - gap;
         }
     }
 
     let own_edge_dist = polyline_rect_distance(&entry.edge_points, &core_rect);
     let mut own_edge_penalty = 0.0f32;
+    if let Some((s_norm, d_signed)) = edge_relative_pose(&entry.edge_points, center) {
+        let s_drift = (s_norm - entry.initial_s_norm).abs();
+        own_edge_penalty += s_drift * s_drift * 2.2;
+        let normal_scale = (entry.label_h + 2.0 * label_pad_y).max(1.0);
+        let normal_drift = (d_signed - entry.initial_d_signed).abs() / normal_scale;
+        own_edge_penalty += normal_drift * normal_drift * 1.6;
+    }
     if own_edge_dist.is_finite() {
         let target_gap = OWN_EDGE_GAP_TARGET_FLOWCHART.max(1e-3);
         if own_edge_dist < target_gap {
@@ -2242,6 +2451,7 @@ fn flowchart_center_label_refine_cost(
     }
     let mut foreign_edge_overlap_area = 0.0f32;
     let mut foreign_edge_touch = false;
+    let mut foreign_edge_near_gap_sum = 0.0f32;
     for edge_obs_idx in edge_grid.query(&obstacle_rect) {
         let (obs_edge_idx, obs) = edge_obstacles[edge_obs_idx];
         if obs_edge_idx == entry.edge_idx {
@@ -2251,10 +2461,16 @@ fn flowchart_center_label_refine_cost(
         if ov > 0.0 {
             foreign_edge_overlap_area += ov;
             foreign_edge_touch = true;
+            continue;
+        }
+        let gap = rect_gap(&obstacle_rect, &obs);
+        if gap < FLOWCHART_LABEL_SOFT_GAP {
+            foreign_edge_near_gap_sum += FLOWCHART_LABEL_SOFT_GAP - gap;
         }
     }
-    let foreign_edge_penalty =
-        (foreign_edge_overlap_area / area) * 48.0 + if foreign_edge_touch { 130.0 } else { 0.0 };
+    let foreign_edge_penalty = (foreign_edge_overlap_area / area) * 48.0
+        + if foreign_edge_touch { 130.0 } else { 0.0 }
+        + foreign_edge_near_gap_sum * 6.5;
     let edge_center_dist = point_polyline_distance(center, &entry.edge_points);
     let (base_target, base_soft_max, base_hard_max) =
         flowchart_center_distance_limits(entry.label_h, label_pad_y);
@@ -2306,8 +2522,10 @@ fn flowchart_center_label_refine_cost(
     }
     let primary = fixed_overlap_count as f32 * 130.0
         + (fixed_overlap_area / area) * 48.0
+        + fixed_near_gap_sum * 6.0
         + overlap_count as f32 * 115.0
         + (overlap_area_sum / area) * 42.0
+        + near_overlap_gap_sum * 5.0
         + own_edge_penalty
         + foreign_edge_penalty
         + edge_center_penalty;
@@ -2402,22 +2620,25 @@ fn resolve_endpoint_labels(
         if let Some(label) = edges[idx].start_label.clone() {
             let label_w = label.width * endpoint_label_scale;
             let label_h = label.height * endpoint_label_scale;
+            let endpoint_avoid_ctx = EndpointLabelAvoidContext {
+                kind,
+                offset: end_label_offset,
+                occupied: &endpoint_occupied,
+                occupied_grid: &endpoint_grid,
+                node_obstacle_count: endpoint_node_obstacle_count,
+                edge_obstacles: &edge_obstacles,
+                edge_grid: &endpoint_edge_grid,
+                bounds,
+            };
             if let Some((x, y)) = edge_endpoint_label_position_with_avoid(
                 &edges[idx],
                 idx,
                 true,
-                kind,
-                end_label_offset,
                 label_w,
                 label_h,
                 endpoint_pad_x,
                 endpoint_pad_y,
-                &endpoint_occupied,
-                &endpoint_grid,
-                endpoint_node_obstacle_count,
-                &edge_obstacles,
-                &endpoint_edge_grid,
-                bounds,
+                &endpoint_avoid_ctx,
             ) {
                 edges[idx].start_label_anchor = Some((x, y));
                 let rect = (
@@ -2440,22 +2661,25 @@ fn resolve_endpoint_labels(
         if let Some(label) = edges[idx].end_label.clone() {
             let label_w = label.width * endpoint_label_scale;
             let label_h = label.height * endpoint_label_scale;
+            let endpoint_avoid_ctx = EndpointLabelAvoidContext {
+                kind,
+                offset: end_label_offset,
+                occupied: &endpoint_occupied,
+                occupied_grid: &endpoint_grid,
+                node_obstacle_count: endpoint_node_obstacle_count,
+                edge_obstacles: &edge_obstacles,
+                edge_grid: &endpoint_edge_grid,
+                bounds,
+            };
             if let Some((x, y)) = edge_endpoint_label_position_with_avoid(
                 &edges[idx],
                 idx,
                 false,
-                kind,
-                end_label_offset,
                 label_w,
                 label_h,
                 endpoint_pad_x,
                 endpoint_pad_y,
-                &endpoint_occupied,
-                &endpoint_grid,
-                endpoint_node_obstacle_count,
-                &edge_obstacles,
-                &endpoint_edge_grid,
-                bounds,
+                &endpoint_avoid_ctx,
             ) {
                 edges[idx].end_label_anchor = Some((x, y));
                 let rect = (
@@ -3203,21 +3427,37 @@ fn center_label_hard_max_gap(kind: DiagramKind) -> Option<f32> {
     }
 }
 
+struct LabelPenaltyContext<'a> {
+    kind: DiagramKind,
+    occupied: &'a [Rect],
+    occupied_grid: &'a ObstacleGrid,
+    node_obstacle_count: usize,
+    edge_obstacles: &'a [EdgeObstacle],
+    edge_grid: &'a ObstacleGrid,
+    edge_idx: usize,
+    own_edge_points: &'a [(f32, f32)],
+    bounds: Option<(f32, f32)>,
+}
+
+struct EndpointLabelAvoidContext<'a> {
+    kind: DiagramKind,
+    offset: f32,
+    occupied: &'a [Rect],
+    occupied_grid: &'a ObstacleGrid,
+    node_obstacle_count: usize,
+    edge_obstacles: &'a [EdgeObstacle],
+    edge_grid: &'a ObstacleGrid,
+    bounds: Option<(f32, f32)>,
+}
+
 fn label_penalties(
     rect: Rect,
     anchor: (f32, f32),
     label_w: f32,
     label_h: f32,
-    kind: DiagramKind,
-    occupied: &[Rect],
-    occupied_grid: &ObstacleGrid,
-    node_obstacle_count: usize,
-    edge_obstacles: &[EdgeObstacle],
-    edge_grid: &ObstacleGrid,
-    edge_idx: usize,
-    own_edge_points: &[(f32, f32)],
-    bounds: Option<(f32, f32)>,
+    ctx: &LabelPenaltyContext<'_>,
 ) -> (f32, f32) {
+    let kind = ctx.kind;
     let area = (label_w * label_h).max(1.0);
     let mut overlap = 0.0;
     let label_weight = if kind == DiagramKind::Flowchart {
@@ -3232,10 +3472,10 @@ fn label_penalties(
     };
     let mut foreign_edge_overlap = 0.0f32;
     let mut foreign_edge_touch = false;
-    for i in occupied_grid.query(&rect) {
-        let ov = overlap_area(&rect, &occupied[i]);
+    for i in ctx.occupied_grid.query(&rect) {
+        let ov = overlap_area(&rect, &ctx.occupied[i]);
         if ov > 0.0 {
-            let weight = if i < node_obstacle_count {
+            let weight = if i < ctx.node_obstacle_count {
                 if kind == DiagramKind::Flowchart {
                     WEIGHT_NODE_OVERLAP_FLOWCHART
                 } else {
@@ -3247,9 +3487,9 @@ fn label_penalties(
             overlap += ov * weight;
         }
     }
-    for i in edge_grid.query(&rect) {
-        let (idx, ref obs) = edge_obstacles[i];
-        if idx == edge_idx {
+    for i in ctx.edge_grid.query(&rect) {
+        let (idx, ref obs) = ctx.edge_obstacles[i];
+        if idx == ctx.edge_idx {
             continue;
         }
         let ov = overlap_area(&rect, obs);
@@ -3265,7 +3505,7 @@ fn label_penalties(
             overlap += area * FLOWCHART_FOREIGN_EDGE_TOUCH_HARD_PENALTY;
         }
     }
-    if let Some(bound) = bounds {
+    if let Some(bound) = ctx.bounds {
         overlap += outside_area(&rect, bound) * WEIGHT_OUTSIDE;
     }
     let own_edge_rect = if kind == DiagramKind::State {
@@ -3275,7 +3515,7 @@ fn label_penalties(
     } else {
         rect
     };
-    let own_edge_dist = polyline_rect_distance(own_edge_points, &own_edge_rect);
+    let own_edge_dist = polyline_rect_distance(ctx.own_edge_points, &own_edge_rect);
     if own_edge_dist.is_finite() {
         let (target_gap, under_weight, over_weight, hard_penalty) =
             if kind == DiagramKind::Flowchart {
@@ -3368,18 +3608,11 @@ fn edge_endpoint_label_position_with_avoid(
     edge: &EdgeLayout,
     edge_idx: usize,
     start: bool,
-    kind: DiagramKind,
-    offset: f32,
     label_w: f32,
     label_h: f32,
     pad_x: f32,
     pad_y: f32,
-    occupied: &[Rect],
-    occupied_grid: &ObstacleGrid,
-    node_obstacle_count: usize,
-    edge_obstacles: &[EdgeObstacle],
-    edge_grid: &ObstacleGrid,
-    bounds: Option<(f32, f32)>,
+    ctx: &EndpointLabelAvoidContext<'_>,
 ) -> Option<(f32, f32)> {
     if edge.points.len() < 2 {
         return None;
@@ -3398,6 +3631,8 @@ fn edge_endpoint_label_position_with_avoid(
     if len <= f32::EPSILON {
         return None;
     }
+    let kind = ctx.kind;
+    let offset = ctx.offset;
     let dir_x = dx / len;
     let dir_y = dy / len;
     let perp_x = -dir_y;
@@ -3422,6 +3657,17 @@ fn edge_endpoint_label_position_with_avoid(
     };
     let mut best_pos = (anchor_x, anchor_y);
     let mut best_penalty = (f32::INFINITY, f32::INFINITY);
+    let penalty_ctx = LabelPenaltyContext {
+        kind,
+        occupied: ctx.occupied,
+        occupied_grid: ctx.occupied_grid,
+        node_obstacle_count: ctx.node_obstacle_count,
+        edge_obstacles: ctx.edge_obstacles,
+        edge_grid: ctx.edge_grid,
+        edge_idx,
+        own_edge_points: &edge.points,
+        bounds: ctx.bounds,
+    };
     for &along in along_steps {
         let base_x = p0.0 + dir_x * offset * (1.4 + along);
         let base_y = p0.1 + dir_y * offset * (1.4 + along);
@@ -3434,21 +3680,8 @@ fn edge_endpoint_label_position_with_avoid(
                 label_w + pad_x * 2.0,
                 label_h + pad_y * 2.0,
             );
-            let mut penalty = label_penalties(
-                rect,
-                (anchor_x, anchor_y),
-                label_w,
-                label_h,
-                kind,
-                occupied,
-                occupied_grid,
-                node_obstacle_count,
-                edge_obstacles,
-                edge_grid,
-                edge_idx,
-                &edge.points,
-                bounds,
-            );
+            let mut penalty =
+                label_penalties(rect, (anchor_x, anchor_y), label_w, label_h, &penalty_ctx);
             // Keep endpoint labels near the endpoint along their carrying edge.
             // This prevents class/state endpoint labels from drifting deep into
             // the middle of long edges when nearby obstacles are sparse.
@@ -3473,7 +3706,7 @@ fn edge_endpoint_label_position_with_avoid(
             }
         }
     }
-    if let Some(bound) = bounds {
+    if let Some(bound) = ctx.bounds {
         let clamped = clamp_label_center_to_bounds(best_pos, label_w, label_h, pad_x, pad_y, bound);
         return Some(clamped);
     }
@@ -3483,6 +3716,29 @@ fn edge_endpoint_label_position_with_avoid(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_label_penalty_context<'a>(
+        kind: DiagramKind,
+        occupied: &'a [Rect],
+        occupied_grid: &'a ObstacleGrid,
+        node_obstacle_count: usize,
+        edge_obstacles: &'a [EdgeObstacle],
+        edge_grid: &'a ObstacleGrid,
+        edge_idx: usize,
+        own_edge_points: &'a [(f32, f32)],
+    ) -> LabelPenaltyContext<'a> {
+        LabelPenaltyContext {
+            kind,
+            occupied,
+            occupied_grid,
+            node_obstacle_count,
+            edge_obstacles,
+            edge_grid,
+            edge_idx,
+            own_edge_points,
+            bounds: None,
+        }
+    }
 
     #[test]
     fn overlap_area_no_overlap() {
@@ -3556,37 +3812,19 @@ mod tests {
         let edge_obstacles: Vec<EdgeObstacle> = Vec::new();
         let edge_rects: Vec<Rect> = Vec::new();
         let edge_grid = ObstacleGrid::new(20.0, &edge_rects);
+        let ctx = test_label_penalty_context(
+            DiagramKind::Flowchart,
+            &occupied,
+            &occupied_grid,
+            0,
+            &edge_obstacles,
+            &edge_grid,
+            0,
+            &edge_points,
+        );
 
-        let touch = label_penalties(
-            rect_touch,
-            (20.0, 15.0),
-            20.0,
-            10.0,
-            DiagramKind::Flowchart,
-            &occupied,
-            &occupied_grid,
-            0,
-            &edge_obstacles,
-            &edge_grid,
-            0,
-            &edge_points,
-            None,
-        );
-        let clear = label_penalties(
-            rect_clear,
-            (20.0, 15.0),
-            20.0,
-            10.0,
-            DiagramKind::Flowchart,
-            &occupied,
-            &occupied_grid,
-            0,
-            &edge_obstacles,
-            &edge_grid,
-            0,
-            &edge_points,
-            None,
-        );
+        let touch = label_penalties(rect_touch, (20.0, 15.0), 20.0, 10.0, &ctx);
+        let clear = label_penalties(rect_clear, (20.0, 15.0), 20.0, 10.0, &ctx);
 
         assert!(
             touch.0 > clear.0,
@@ -3604,37 +3842,19 @@ mod tests {
         let edge_obstacles: Vec<EdgeObstacle> = Vec::new();
         let edge_rects: Vec<Rect> = Vec::new();
         let edge_grid = ObstacleGrid::new(20.0, &edge_rects);
+        let ctx = test_label_penalty_context(
+            DiagramKind::Flowchart,
+            &occupied,
+            &occupied_grid,
+            0,
+            &edge_obstacles,
+            &edge_grid,
+            0,
+            &edge_points,
+        );
 
-        let near = label_penalties(
-            rect_near,
-            (20.0, 15.0),
-            20.0,
-            10.0,
-            DiagramKind::Flowchart,
-            &occupied,
-            &occupied_grid,
-            0,
-            &edge_obstacles,
-            &edge_grid,
-            0,
-            &edge_points,
-            None,
-        );
-        let far = label_penalties(
-            rect_far,
-            (20.0, 15.0),
-            20.0,
-            10.0,
-            DiagramKind::Flowchart,
-            &occupied,
-            &occupied_grid,
-            0,
-            &edge_obstacles,
-            &edge_grid,
-            0,
-            &edge_points,
-            None,
-        );
+        let near = label_penalties(rect_near, (20.0, 15.0), 20.0, 10.0, &ctx);
+        let far = label_penalties(rect_far, (20.0, 15.0), 20.0, 10.0, &ctx);
 
         assert!(
             far.0 > near.0,
@@ -3652,37 +3872,19 @@ mod tests {
         let edge_obstacles: Vec<EdgeObstacle> = vec![(1, (29.5, 0.0, 1.0, 50.0))];
         let edge_rects: Vec<Rect> = edge_obstacles.iter().map(|(_, rect)| *rect).collect();
         let edge_grid = ObstacleGrid::new(20.0, &edge_rects);
+        let ctx = test_label_penalty_context(
+            DiagramKind::Flowchart,
+            &occupied,
+            &occupied_grid,
+            0,
+            &edge_obstacles,
+            &edge_grid,
+            0,
+            &own_edge_points,
+        );
 
-        let touch = label_penalties(
-            rect_touch_foreign,
-            (34.0, 15.0),
-            20.0,
-            10.0,
-            DiagramKind::Flowchart,
-            &occupied,
-            &occupied_grid,
-            0,
-            &edge_obstacles,
-            &edge_grid,
-            0,
-            &own_edge_points,
-            None,
-        );
-        let clear = label_penalties(
-            rect_clear_foreign,
-            (70.0, 15.0),
-            20.0,
-            10.0,
-            DiagramKind::Flowchart,
-            &occupied,
-            &occupied_grid,
-            0,
-            &edge_obstacles,
-            &edge_grid,
-            0,
-            &own_edge_points,
-            None,
-        );
+        let touch = label_penalties(rect_touch_foreign, (34.0, 15.0), 20.0, 10.0, &ctx);
+        let clear = label_penalties(rect_clear_foreign, (70.0, 15.0), 20.0, 10.0, &ctx);
 
         assert!(
             touch.0 > clear.0,
@@ -3829,24 +4031,19 @@ mod tests {
         let edge_obstacles: Vec<EdgeObstacle> = Vec::new();
         let edge_grid = ObstacleGrid::new(48.0, &[]);
         let offset = 3.8;
-        let pos = edge_endpoint_label_position_with_avoid(
-            &edge,
-            0,
-            true,
-            DiagramKind::Class,
+        let ctx = EndpointLabelAvoidContext {
+            kind: DiagramKind::Class,
             offset,
-            12.0,
-            16.0,
-            3.2,
-            1.6,
-            &occupied,
-            &occupied_grid,
-            0,
-            &edge_obstacles,
-            &edge_grid,
-            None,
-        )
-        .expect("expected endpoint anchor");
+            occupied: &occupied,
+            occupied_grid: &occupied_grid,
+            node_obstacle_count: 0,
+            edge_obstacles: &edge_obstacles,
+            edge_grid: &edge_grid,
+            bounds: None,
+        };
+        let pos =
+            edge_endpoint_label_position_with_avoid(&edge, 0, true, 12.0, 16.0, 3.2, 1.6, &ctx)
+                .expect("expected endpoint anchor");
         assert!(
             pos.1 <= offset * 1.4 + 0.25,
             "expected class endpoint label near endpoint, got y={}",

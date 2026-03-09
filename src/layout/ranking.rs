@@ -158,7 +158,7 @@ fn pair_crossings(
 }
 
 fn transpose_bucket(
-    bucket: &mut Vec<String>,
+    bucket: &mut [String],
     neighbors: &HashMap<String, Vec<String>>,
     positions: &HashMap<String, usize>,
     node_order: &HashMap<String, usize>,
@@ -222,19 +222,11 @@ pub(super) fn compute_ranks_subset(
     node_order: &HashMap<String, usize>,
 ) -> HashMap<String, usize> {
     let set: HashSet<String> = node_ids.iter().cloned().collect();
-    let mut adj: HashMap<String, Vec<String>> = HashMap::new();
-    let mut rev: HashMap<String, Vec<String>> = HashMap::new();
-
-    for edge in edges {
-        if set.contains(&edge.from) && set.contains(&edge.to) {
-            adj.entry(edge.from.clone())
-                .or_default()
-                .push(edge.to.clone());
-            rev.entry(edge.to.clone())
-                .or_default()
-                .push(edge.from.clone());
-        }
-    }
+    let subset_edges: Vec<crate::ir::Edge> = edges
+        .iter()
+        .filter(|edge| set.contains(&edge.from) && set.contains(&edge.to))
+        .cloned()
+        .collect();
 
     let mut fallback_order: HashMap<&str, usize> = HashMap::new();
     for (idx, id) in node_ids.iter().enumerate() {
@@ -247,79 +239,139 @@ pub(super) fn compute_ranks_subset(
             .unwrap_or_else(|| fallback_order.get(id).copied().unwrap_or(usize::MAX))
     };
 
-    let mut indeg: HashMap<String, usize> = HashMap::new();
-    for id in &set {
-        let count = rev.get(id).map(|v| v.len()).unwrap_or(0);
-        indeg.insert(id.clone(), count);
-    }
-
-    let mut ready: BinaryHeap<Reverse<(usize, String)>> = BinaryHeap::new();
-    for id in &set {
-        if *indeg.get(id).unwrap_or(&0) == 0 {
-            ready.push(Reverse((order_key(id.as_str()), id.clone())));
+    let components = strongly_connected_components(node_ids, &subset_edges);
+    let mut node_to_component: HashMap<String, usize> = HashMap::new();
+    for (comp_idx, component) in components.iter().enumerate() {
+        for node_id in component {
+            node_to_component.insert(node_id.clone(), comp_idx);
         }
     }
 
-    let mut order = Vec::with_capacity(set.len());
-    let mut processed: HashSet<String> = HashSet::new();
-    loop {
-        while let Some(Reverse((_key, id))) = ready.pop() {
-            if processed.contains(&id) {
-                continue;
-            }
-            order.push(id.clone());
-            processed.insert(id.clone());
-            if let Some(nexts) = adj.get(&id) {
-                for next in nexts {
-                    if processed.contains(next) {
-                        continue;
-                    }
-                    if let Some(deg) = indeg.get_mut(next) {
-                        *deg = deg.saturating_sub(1);
-                        if *deg == 0 {
-                            ready.push(Reverse((order_key(next.as_str()), next.clone())));
-                        }
-                    }
-                }
-            }
+    let mut comp_adj: HashMap<usize, Vec<usize>> = HashMap::new();
+    let mut comp_rev: HashMap<usize, Vec<usize>> = HashMap::new();
+    for edge in &subset_edges {
+        let Some(&from_comp) = node_to_component.get(&edge.from) else {
+            continue;
+        };
+        let Some(&to_comp) = node_to_component.get(&edge.to) else {
+            continue;
+        };
+        if from_comp == to_comp {
+            continue;
         }
+        comp_adj.entry(from_comp).or_default().push(to_comp);
+        comp_rev.entry(to_comp).or_default().push(from_comp);
+    }
+    for nexts in comp_adj.values_mut() {
+        nexts.sort_unstable();
+        nexts.dedup();
+    }
+    for prevs in comp_rev.values_mut() {
+        prevs.sort_unstable();
+        prevs.dedup();
+    }
 
-        if processed.len() >= set.len() {
-            break;
-        }
+    let component_order = stable_topology_order(
+        &(0..components.len()).collect::<Vec<_>>(),
+        &comp_adj,
+        &comp_rev,
+        |comp_idx| {
+            components[*comp_idx]
+                .iter()
+                .map(|id| order_key(id.as_str()))
+                .min()
+                .unwrap_or(usize::MAX)
+        },
+    );
 
-        // Cycle detected — pick the remaining node earliest in declaration
-        // order as the next source, treating its incoming edges as back-edges.
-        let mut best: Option<(usize, String)> = None;
-        for id in &set {
-            if !processed.contains(id) {
-                let key = order_key(id.as_str());
-                if best.as_ref().map_or(true, |(bk, _)| key < *bk) {
-                    best = Some((key, id.clone()));
-                }
+    let mut local_ranks_by_component: Vec<HashMap<String, usize>> =
+        vec![HashMap::new(); components.len()];
+    for (comp_idx, component) in components.iter().enumerate() {
+        let internal_order = stable_component_node_order(component, &subset_edges, &order_key);
+        let component_set: HashSet<&str> = component.iter().map(String::as_str).collect();
+        let mut internal_adj: HashMap<String, Vec<String>> = HashMap::new();
+        for edge in &subset_edges {
+            if component_set.contains(edge.from.as_str())
+                && component_set.contains(edge.to.as_str())
+            {
+                internal_adj
+                    .entry(edge.from.clone())
+                    .or_default()
+                    .push(edge.to.clone());
             }
         }
-        if let Some((key, id)) = best {
-            ready.push(Reverse((key, id)));
-        } else {
-            break;
+        local_ranks_by_component[comp_idx] =
+            layered_ranks_from_order(&internal_order, &internal_adj);
+    }
+
+    let mut weighted_comp_edges: HashMap<usize, Vec<(usize, isize)>> = HashMap::new();
+    for edge in &subset_edges {
+        let Some(&from_comp) = node_to_component.get(&edge.from) else {
+            continue;
+        };
+        let Some(&to_comp) = node_to_component.get(&edge.to) else {
+            continue;
+        };
+        if from_comp == to_comp {
+            continue;
+        }
+        let from_local = local_ranks_by_component[from_comp]
+            .get(&edge.from)
+            .copied()
+            .unwrap_or(0) as isize;
+        let to_local = local_ranks_by_component[to_comp]
+            .get(&edge.to)
+            .copied()
+            .unwrap_or(0) as isize;
+        weighted_comp_edges
+            .entry(from_comp)
+            .or_default()
+            .push((to_comp, from_local + 1 - to_local));
+    }
+
+    let mut component_start = vec![0isize; components.len()];
+    for comp_idx in &component_order {
+        let start = component_start[*comp_idx];
+        if let Some(nexts) = weighted_comp_edges.get(comp_idx) {
+            for (next, weight) in nexts {
+                component_start[*next] = component_start[*next].max(start + *weight);
+            }
         }
     }
 
-    let order_index: HashMap<String, usize> = order
+    let mut ranks: HashMap<String, usize> = HashMap::new();
+    for (comp_idx, component) in components.iter().enumerate() {
+        let base_rank = component_start[comp_idx].max(0) as usize;
+        for node_id in component {
+            let local_rank = local_ranks_by_component[comp_idx]
+                .get(node_id)
+                .copied()
+                .unwrap_or(0);
+            ranks.insert(node_id.clone(), base_rank + local_rank);
+        }
+    }
+
+    ranks
+}
+
+fn layered_ranks_from_order(
+    order: &[String],
+    adj: &HashMap<String, Vec<String>>,
+) -> HashMap<String, usize> {
+    let order_index: HashMap<&str, usize> = order
         .iter()
         .enumerate()
-        .map(|(idx, id)| (id.clone(), idx))
+        .map(|(idx, id)| (id.as_str(), idx))
         .collect();
 
     let mut ranks: HashMap<String, usize> = HashMap::new();
-    for node in &order {
+    for node in order {
         let rank = *ranks.get(node).unwrap_or(&0);
         ranks.entry(node.clone()).or_insert(rank);
         if let Some(nexts) = adj.get(node) {
-            let from_idx = *order_index.get(node).unwrap_or(&0);
+            let from_idx = *order_index.get(node.as_str()).unwrap_or(&0);
             for next in nexts {
-                let to_idx = *order_index.get(next).unwrap_or(&from_idx);
+                let to_idx = *order_index.get(next.as_str()).unwrap_or(&from_idx);
                 if to_idx <= from_idx {
                     continue;
                 }
@@ -328,8 +380,165 @@ pub(super) fn compute_ranks_subset(
             }
         }
     }
-
     ranks
+}
+
+fn stable_component_node_order<F>(
+    component: &[String],
+    edges: &[crate::ir::Edge],
+    order_key: &F,
+) -> Vec<String>
+where
+    F: Fn(&str) -> usize,
+{
+    let component_set: HashSet<&str> = component.iter().map(String::as_str).collect();
+    let mut adj: HashMap<String, Vec<String>> = HashMap::new();
+    let mut rev: HashMap<String, Vec<String>> = HashMap::new();
+    for edge in edges {
+        if component_set.contains(edge.from.as_str()) && component_set.contains(edge.to.as_str()) {
+            adj.entry(edge.from.clone())
+                .or_default()
+                .push(edge.to.clone());
+            rev.entry(edge.to.clone())
+                .or_default()
+                .push(edge.from.clone());
+        }
+    }
+
+    stable_topology_order(component, &adj, &rev, |node_id| order_key(node_id.as_str()))
+}
+
+fn stable_topology_order<T, F>(
+    items: &[T],
+    adj: &HashMap<T, Vec<T>>,
+    rev: &HashMap<T, Vec<T>>,
+    order_key: F,
+) -> Vec<T>
+where
+    T: Clone + Eq + std::hash::Hash + Ord,
+    F: Fn(&T) -> usize,
+{
+    let mut indeg: HashMap<T, usize> = HashMap::new();
+    for item in items {
+        let count = rev.get(item).map(|v| v.len()).unwrap_or(0);
+        indeg.insert(item.clone(), count);
+    }
+
+    let mut ready: BinaryHeap<Reverse<(usize, T)>> = BinaryHeap::new();
+    for item in items {
+        if *indeg.get(item).unwrap_or(&0) == 0 {
+            ready.push(Reverse((order_key(item), item.clone())));
+        }
+    }
+
+    let item_set: HashSet<T> = items.iter().cloned().collect();
+    let mut ordered = Vec::with_capacity(items.len());
+    let mut processed: HashSet<T> = HashSet::new();
+    loop {
+        while let Some(Reverse((_key, item))) = ready.pop() {
+            if processed.contains(&item) {
+                continue;
+            }
+            ordered.push(item.clone());
+            processed.insert(item.clone());
+            if let Some(nexts) = adj.get(&item) {
+                for next in nexts {
+                    if processed.contains(next) {
+                        continue;
+                    }
+                    if let Some(deg) = indeg.get_mut(next) {
+                        *deg = deg.saturating_sub(1);
+                        if *deg == 0 {
+                            ready.push(Reverse((order_key(next), next.clone())));
+                        }
+                    }
+                }
+            }
+        }
+
+        if processed.len() >= items.len() {
+            break;
+        }
+
+        let mut best: Option<(usize, T)> = None;
+        for item in &item_set {
+            if !processed.contains(item) {
+                let key = order_key(item);
+                if best.as_ref().is_none_or(|(best_key, _)| key < *best_key) {
+                    best = Some((key, item.clone()));
+                }
+            }
+        }
+        if let Some((key, item)) = best {
+            ready.push(Reverse((key, item)));
+        } else {
+            break;
+        }
+    }
+
+    ordered
+}
+
+fn strongly_connected_components(
+    node_ids: &[String],
+    edges: &[crate::ir::Edge],
+) -> Vec<Vec<String>> {
+    let mut adj: HashMap<String, Vec<String>> = HashMap::new();
+    let mut rev: HashMap<String, Vec<String>> = HashMap::new();
+    for edge in edges {
+        adj.entry(edge.from.clone())
+            .or_default()
+            .push(edge.to.clone());
+        rev.entry(edge.to.clone())
+            .or_default()
+            .push(edge.from.clone());
+    }
+
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut finish_order = Vec::with_capacity(node_ids.len());
+    for node_id in node_ids {
+        dfs_finish_order(node_id, &adj, &mut visited, &mut finish_order);
+    }
+
+    let mut assigned: HashSet<String> = HashSet::new();
+    let mut components = Vec::new();
+    while let Some(node_id) = finish_order.pop() {
+        if !assigned.insert(node_id.clone()) {
+            continue;
+        }
+        let mut component = Vec::new();
+        let mut stack = vec![node_id];
+        while let Some(current) = stack.pop() {
+            component.push(current.clone());
+            if let Some(prevs) = rev.get(&current) {
+                for prev in prevs {
+                    if assigned.insert(prev.clone()) {
+                        stack.push(prev.clone());
+                    }
+                }
+            }
+        }
+        components.push(component);
+    }
+
+    components
+}
+
+fn dfs_finish_order(
+    node_id: &str,
+    adj: &HashMap<String, Vec<String>>,
+    visited: &mut HashSet<String>,
+    finish_order: &mut Vec<String>,
+) {
+    if !visited.insert(node_id.to_string()) {
+        return;
+    }
+    if let Some(nexts) = adj.get(node_id) {
+        for next in nexts {
+            dfs_finish_order(next, adj, visited, finish_order);
+        }
+    }
+    finish_order.push(node_id.to_string());
 }
 
 #[cfg(test)]
@@ -386,8 +595,57 @@ mod tests {
         let nodes = vec!["A".into(), "B".into(), "C".into()];
         let edges = vec![edge("A", "B"), edge("B", "C"), edge("C", "A")];
         let ranks = compute_ranks_subset(&nodes, &edges, &HashMap::new());
-        // All nodes should get a rank (cycle doesn't cause infinite loop)
         assert_eq!(ranks.len(), 3);
+        assert_eq!(ranks["A"], 0);
+        assert_eq!(ranks["B"], 1);
+        assert_eq!(ranks["C"], 2);
+    }
+
+    #[test]
+    fn compute_ranks_places_downstream_after_cycle_component() {
+        let nodes = vec!["A".into(), "B".into(), "C".into(), "D".into()];
+        let edges = vec![
+            edge("A", "B"),
+            edge("B", "C"),
+            edge("C", "A"),
+            edge("C", "D"),
+        ];
+        let ranks = compute_ranks_subset(&nodes, &edges, &HashMap::new());
+        let cycle_max = ranks["A"].max(ranks["B"]).max(ranks["C"]);
+        assert_eq!(cycle_max, 2);
+        assert_eq!(ranks["D"], cycle_max + 1);
+    }
+
+    #[test]
+    fn compute_ranks_cycle_with_entry_and_exit_respects_external_precedence() {
+        let nodes = vec!["S".into(), "A".into(), "B".into(), "T".into()];
+        let edges = vec![
+            edge("S", "A"),
+            edge("A", "B"),
+            edge("B", "A"),
+            edge("B", "T"),
+        ];
+        let ranks = compute_ranks_subset(&nodes, &edges, &HashMap::new());
+        let cycle_min = ranks["A"].min(ranks["B"]);
+        let cycle_max = ranks["A"].max(ranks["B"]);
+        assert!(cycle_min > ranks["S"]);
+        assert!(ranks["T"] > cycle_max);
+    }
+
+    #[test]
+    fn compute_ranks_cycle_respects_entry_and_exit_when_cycle_order_flips() {
+        let nodes = vec!["S".into(), "B".into(), "A".into(), "T".into()];
+        let edges = vec![
+            edge("S", "B"),
+            edge("A", "B"),
+            edge("B", "A"),
+            edge("A", "T"),
+        ];
+        let ranks = compute_ranks_subset(&nodes, &edges, &HashMap::new());
+        let cycle_min = ranks["A"].min(ranks["B"]);
+        let cycle_max = ranks["A"].max(ranks["B"]);
+        assert!(cycle_min > ranks["S"]);
+        assert!(ranks["T"] > cycle_max);
     }
 
     #[test]
