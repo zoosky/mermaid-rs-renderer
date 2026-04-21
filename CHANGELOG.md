@@ -1,5 +1,55 @@
 # Changelog
 
+## [Unreleased]
+
+### Added: Structured `ParseError` and strict library entry points
+
+- New `ParseError` enum in `src/error.rs` with four variants:
+  `UnknownParticipant`, `UnclosedSubgraph`, `UnexpectedToken`, and
+  `InvalidDirective`. Marked `#[non_exhaustive]` so future variants
+  can be added without breaking semver. Derives `thiserror::Error`.
+- New public entry points in `lib.rs`:
+  - `parse_mermaid_strict(input: &str) -> Result<ParseOutput, ParseError>`
+  - `render_strict(input: &str, options: RenderOptions) -> Result<String, ParseError>`
+- New preflight validator (`src/validator.rs`) runs before the
+  per-type parsers and reports malformed input as typed `ParseError`
+  variants. Initial coverage: six starter detection paths --
+  invalid `%%{init}%%` JSON, unclosed subgraph, stray `end`,
+  leading-arrow lines, unbalanced `click` quotes, and
+  unknown-participant references in sequence diagrams that declare
+  at least one participant explicitly.
+- New integration tests in `tests/parse_errors.rs`: 25 cases,
+  covering every `ParseError` variant with at least 5 tests each.
+
+### Changed
+
+- Existing `render(...)` and `render_with_options(...)` now delegate
+  to `render_strict` internally and map `ParseError` through
+  `.into()` for `anyhow`. Public signatures remain
+  `anyhow::Result<String>`; all existing call sites continue to
+  compile and behave identically on valid inputs.
+- `parse_class_line` in `src/parser.rs`: rewrote the guarded
+  `parts.last().unwrap()` as `.expect("parts.len() >= 3 checked above")`.
+  The guard above makes this unreachable today; the `.expect()` message
+  documents the invariant.
+
+### Documentation
+
+- New `docs/unwrap_audit.md`: full audit of every `.unwrap()` call
+  under `src/`, classifying each as compile-time-safe
+  (`Lazy<Regex>::new()` at module load), guarded (length-checked
+  above), or runtime-reachable.
+- New `docs/error_tracking.md`: pins the 1-based line / 1-based
+  character-column conventions that `ParseError` variants use, so
+  follow-up detection paths stay consistent.
+
+### Follow-up
+
+- Full per-diagram-type error detection (i.e., wiring `ParseError`
+  returns into the 23 per-type parsers rather than a single
+  preflight pass) is tracked separately downstream and will land
+  as additive detection paths without changing the public API.
+
 ## v0.2.2 (2026-04-23)
 
 ### Visual and Layout Fixes

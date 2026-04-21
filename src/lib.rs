@@ -91,6 +91,7 @@
 #[cfg(feature = "cli")]
 pub mod cli;
 pub mod config;
+pub mod error;
 pub mod ir;
 pub mod layout;
 pub mod layout_dump;
@@ -98,9 +99,11 @@ pub mod parser;
 pub mod render;
 mod text_metrics;
 pub mod theme;
+mod validator;
 
 // Re-export commonly used types at crate root for ergonomic library usage
 pub use config::{Config, LayoutConfig, RenderConfig};
+pub use error::ParseError;
 pub use ir::{
     DiagramKind, Direction, Edge, EdgeArrowhead, EdgeDecoration, EdgeStyle, Graph, Node, NodeLink,
     NodeShape, SequenceActivation, SequenceActivationKind, SequenceBox, StateNote,
@@ -215,10 +218,50 @@ pub fn render(input: &str) -> anyhow::Result<String> {
 /// let svg = render_with_options("flowchart LR; A-->B", opts).unwrap();
 /// ```
 pub fn render_with_options(input: &str, options: RenderOptions) -> anyhow::Result<String> {
-    let parsed = parse_mermaid(input)?;
+    render_strict(input, options).map_err(Into::into)
+}
+
+/// Parse a Mermaid diagram, surfacing typed [`ParseError`]
+/// instead of [`anyhow::Error`].
+///
+/// Runs the preflight validator (see `validator` module) before
+/// delegating to [`parse_mermaid`]. Today `parse_mermaid` has no
+/// `Err` paths of its own; the validator is the sole source of
+/// structured errors until full per-diagram-type detection lands.
+///
+/// # Errors
+///
+/// Returns a [`ParseError`] variant for any of the five starter
+/// detection paths implemented by the preflight validator:
+/// invalid `%%{init}%%` directive, unclosed subgraph, stray
+/// `end`, leading-arrow lines, or unbalanced quotes in a `click`
+/// directive.
+pub fn parse_mermaid_strict(input: &str) -> Result<ParseOutput, ParseError> {
+    validator::validate(input)?;
+    // `parse_mermaid` is total as of fork rev 84e95ab: every per-type
+    // parser terminates in an unconditional `Ok(ParseOutput { ... })`.
+    // The `expect` here is a forward-compatibility guard: if future
+    // work introduces real `Err` paths in the per-type parsers, this
+    // panic will flag the missing `ParseError` conversion before the
+    // ambiguity reaches callers.
+    Ok(parse_mermaid(input).expect("parse_mermaid has no Err paths as of fork rev 84e95ab"))
+}
+
+/// Render a Mermaid diagram to SVG, surfacing typed [`ParseError`]
+/// instead of [`anyhow::Error`].
+///
+/// Thin wrapper around [`parse_mermaid_strict`] that layouts and
+/// emits SVG on success.
+///
+/// # Errors
+///
+/// Returns a [`ParseError`] when preflight validation rejects
+/// the input; see [`parse_mermaid_strict`] for the full set of
+/// detection paths.
+pub fn render_strict(input: &str, options: RenderOptions) -> Result<String, ParseError> {
+    let parsed = parse_mermaid_strict(input)?;
     let layout = compute_layout(&parsed.graph, &options.theme, &options.layout);
-    let svg = render_svg(&layout, &options.theme, &options.layout);
-    Ok(svg)
+    Ok(render_svg(&layout, &options.theme, &options.layout))
 }
 
 /// Result of rendering with timing information.

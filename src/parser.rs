@@ -5517,7 +5517,10 @@ fn parse_class_line(line: &str, graph: &mut Graph) {
     if parts.len() < 3 {
         return;
     }
-    let class_name = parts.last().unwrap().to_string();
+    let class_name = parts
+        .last()
+        .expect("parts.len() >= 3 checked above")
+        .to_string();
     let class_names: Vec<String> = class_name
         .split(',')
         .map(|name| name.trim().to_string())
