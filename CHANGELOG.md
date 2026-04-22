@@ -2,6 +2,45 @@
 
 ## [Unreleased]
 
+### Added: `embedded-font` cargo feature
+
+- New cargo feature `embedded-font` (not in `default`) that ships
+  Inter Regular + Inter Bold (TrueType, SIL OFL 1.1) as
+  `include_bytes!` constants under `assets/fonts/`. Adds ~822 KB to
+  the binary when enabled.
+- When the feature is on, the text-metric loader skips
+  `fontdb::Database::load_system_fonts()` and populates the
+  database with the bundled bytes instead. This removes the
+  startup filesystem-scan cost that dominates first-render latency
+  on servers and sandboxed environments, and makes font resolution
+  deterministic across hosts.
+- Generic-family fallbacks (`sans-serif`, `serif`, `monospace`,
+  `cursive`, `fantasy`) are all aliased to Inter via
+  `Database::set_sans_serif_family` (and siblings), so CSS such as
+  `font-family: "foo", "bar", sans-serif` still resolves to the
+  bundled face when the named families are absent from the DB --
+  without this, queries that miss the named families would fall
+  through to `fontdb`'s hardcoded "Arial" / "Times New Roman" /
+  "Courier New" anchors which are not registered here, and
+  callers would silently regress to character-count heuristics.
+- `--fastText` remains orthogonal; callers can combine
+  `embedded-font` with the fast-text fallback path.
+- New bench `benches/font_startup.rs` measures the cost of
+  populating a fresh `fontdb::Database` with this feature on or off.
+  Measured on macOS arm64 (Apple M-series, 2026-04-22):
+  - `db_load_system_fonts`: ~11.3 ms per fresh database
+    (filesystem scan).
+  - `db_load_embedded_fonts`: ~1.1 µs per fresh database
+    (zero-copy via `Source::Binary(Arc<&'static [u8]>)`) --
+    roughly 10,000x faster.
+- The embedded-font loader uses `Database::load_font_source` with
+  `Arc<&'static [u8]>` so the static font bytes are referenced
+  directly from rodata, avoiding a per-startup ~822 KB heap copy
+  that `Database::load_font_data(Vec<u8>)` would require.
+- Font files live at `assets/fonts/Inter-Regular.ttf`,
+  `assets/fonts/Inter-Bold.ttf`, with the license text at
+  `assets/fonts/OFL.txt` (SIL Open Font License 1.1).
+
 ### Added: Structured `ParseError` and strict library entry points
 
 - New `ParseError` enum in `src/error.rs` with four variants:
