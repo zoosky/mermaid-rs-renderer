@@ -354,6 +354,18 @@ fn render_all_fixtures() {
 }
 
 #[test]
+fn sequence_nested_alt_wide_section_labels_do_not_panic() {
+    let fixture = "sequence/nested_alt.mmd";
+    let input = std::fs::read_to_string(Path::new("tests/fixtures").join(fixture)).unwrap();
+    let parsed = parse_mermaid(&input).unwrap();
+    let theme = Theme::mermaid_default();
+    let config = LayoutConfig::default();
+    let layout = compute_layout(&parsed.graph, &theme, &config);
+    let svg = render_svg(&layout, &theme, &config);
+    assert_valid_svg(&svg, fixture);
+}
+
+#[test]
 fn sequence_basic_uses_mermaid_like_actor_geometry_and_framing() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")

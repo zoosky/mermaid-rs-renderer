@@ -493,18 +493,25 @@ pub(super) fn compute_sequence_layout(
                     };
                     let side_pad = theme.font_size * 0.45;
                     let frame_center_x = frame_x + frame_width / 2.0;
+                    let clamp_or_midpoint = |preferred: f32, min_x: f32, max_x: f32| {
+                        if min_x <= max_x {
+                            preferred.clamp(min_x, max_x)
+                        } else {
+                            (min_x + max_x) / 2.0
+                        }
+                    };
                     let label_x = if section_idx == 0 {
                         let preferred =
                             frame_x + label_box_w + theme.font_size * 3.0 + block.width / 2.0;
                         let min_x = frame_x + block.width / 2.0 + theme.font_size * 0.4;
                         let max_x =
                             frame_x + frame_width - block.width / 2.0 - theme.font_size * 0.4;
-                        preferred.clamp(min_x, max_x)
+                        clamp_or_midpoint(preferred, min_x, max_x)
                     } else {
                         let preferred = frame_center_x;
                         let min_x = frame_x + block.width / 2.0 + side_pad;
                         let max_x = frame_x + frame_width - block.width / 2.0 - side_pad;
-                        preferred.clamp(min_x, max_x)
+                        clamp_or_midpoint(preferred, min_x, max_x)
                     };
                     section_labels.push(SequenceLabel {
                         x: label_x,

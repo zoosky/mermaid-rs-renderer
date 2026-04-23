@@ -752,6 +752,43 @@ fn parse_state_description_line(line: &str) -> Option<(String, String, Vec<Strin
     Some((id, desc, classes))
 }
 
+fn state_display_label(
+    id: &str,
+    labels: &HashMap<String, String>,
+    descriptions: &HashMap<String, Vec<String>>,
+) -> String {
+    let title = labels.get(id).map(String::as_str).unwrap_or(id);
+    let Some(descriptions) = descriptions.get(id) else {
+        return title.to_string();
+    };
+    if descriptions.is_empty() {
+        return title.to_string();
+    }
+
+    let mut label = String::with_capacity(
+        title.len() + descriptions.iter().map(String::len).sum::<usize>() + descriptions.len() + 4,
+    );
+    label.push_str(title);
+    label.push_str("\n---");
+    for description in descriptions {
+        label.push('\n');
+        label.push_str(description);
+    }
+    label
+}
+
+fn state_display_label_option(
+    id: &str,
+    labels: &HashMap<String, String>,
+    descriptions: &HashMap<String, Vec<String>>,
+) -> Option<String> {
+    if labels.contains_key(id) || descriptions.contains_key(id) {
+        Some(state_display_label(id, labels, descriptions))
+    } else {
+        None
+    }
+}
+
 fn parse_state_id_with_classes(input: &str) -> (String, Vec<String>) {
     let (base, classes) = split_inline_classes(input);
     (strip_quotes(base.trim()), classes)
@@ -4233,6 +4270,7 @@ fn parse_state_diagram(input: &str) -> Result<ParseOutput> {
     let (lines, init_config) = preprocess_input(input)?;
 
     let mut labels: HashMap<String, String> = HashMap::new();
+    let mut descriptions: HashMap<String, Vec<String>> = HashMap::new();
     let mut start_states: HashMap<String, String> = HashMap::new();
     let mut end_states: HashMap<String, String> = HashMap::new();
     let mut subgraph_stack: Vec<usize> = Vec::new();
@@ -4398,7 +4436,7 @@ fn parse_state_diagram(input: &str) -> Result<ParseOutput> {
                 labels.insert(id.clone(), label);
                 graph.ensure_node(
                     &id,
-                    labels.get(&id).cloned(),
+                    Some(state_display_label(&id, &labels, &descriptions)),
                     state_shape.or(Some(crate::ir::NodeShape::RoundRect)),
                 );
                 apply_node_classes(&mut graph, &id, &classes);
@@ -4431,8 +4469,10 @@ fn parse_state_diagram(input: &str) -> Result<ParseOutput> {
                     &scope,
                 );
 
-                let left_label = left_label_override.or_else(|| labels.get(&left_id).cloned());
-                let right_label = right_label_override.or_else(|| labels.get(&right_id).cloned());
+                let left_label = left_label_override
+                    .or_else(|| state_display_label_option(&left_id, &labels, &descriptions));
+                let right_label = right_label_override
+                    .or_else(|| state_display_label_option(&right_id, &labels, &descriptions));
                 let left_shape = if left_shape == crate::ir::NodeShape::RoundRect
                     && graph.nodes.contains_key(&left_id)
                 {
@@ -4475,10 +4515,10 @@ fn parse_state_diagram(input: &str) -> Result<ParseOutput> {
 
             if let Some((id, label, classes)) = parse_state_description_line(line) {
                 let label = label_override.clone().unwrap_or(label);
-                labels.insert(id.clone(), label);
+                descriptions.entry(id.clone()).or_default().push(label);
                 graph.ensure_node(
                     &id,
-                    labels.get(&id).cloned(),
+                    Some(state_display_label(&id, &labels, &descriptions)),
                     state_shape.or(Some(crate::ir::NodeShape::RoundRect)),
                 );
                 apply_node_classes(&mut graph, &id, &classes);
@@ -4497,7 +4537,11 @@ fn parse_state_diagram(input: &str) -> Result<ParseOutput> {
                 } else {
                     Some(crate::ir::NodeShape::RoundRect)
                 };
-                graph.ensure_node(&target, labels.get(&target).cloned(), shape);
+                graph.ensure_node(
+                    &target,
+                    state_display_label_option(&target, &labels, &descriptions),
+                    shape,
+                );
                 apply_node_classes(&mut graph, &target, &classes);
                 graph.state_notes.push(crate::ir::StateNote {
                     position,
@@ -4515,7 +4559,7 @@ fn parse_state_diagram(input: &str) -> Result<ParseOutput> {
                 }
                 graph.ensure_node(
                     &id,
-                    labels.get(&id).cloned(),
+                    state_display_label_option(&id, &labels, &descriptions),
                     state_shape.or(Some(crate::ir::NodeShape::RoundRect)),
                 );
                 apply_node_classes(&mut graph, &id, &classes);
@@ -6487,7 +6531,18 @@ A["foo & bar"] & B --> C"#;
         let input = "stateDiagram-v2\nstate Idle : Waiting\nIdle --> Done";
         let parsed = parse_mermaid(input).unwrap();
         let node = parsed.graph.nodes.get("Idle").unwrap();
-        assert_eq!(node.label, "Waiting");
+        assert_eq!(node.label, "Idle\n---\nWaiting");
+    }
+
+    #[test]
+    fn parse_state_descriptions_preserve_title_and_accumulate() {
+        let input = "stateDiagram-v2\nCLOSED --> OPEN : fail\nCLOSED : All DB calls pass through\nCLOSED : Counting consecutive failures";
+        let parsed = parse_mermaid(input).unwrap();
+        let node = parsed.graph.nodes.get("CLOSED").unwrap();
+        assert_eq!(
+            node.label,
+            "CLOSED\n---\nAll DB calls pass through\nCounting consecutive failures"
+        );
     }
 
     #[test]

@@ -475,7 +475,6 @@ fn compute_flowchart_layout(
         },
     );
 
-
     flowchart::finalize::finalize_graph_layout(graph, nodes, edges, subgraphs, theme, config)
 }
 
@@ -2275,6 +2274,8 @@ flowchart LR
             end_offset: 0.0,
             fast_route: false,
             stub_len: port_stub_length(&config, &from, &to),
+            start_inset: 0.0,
+            end_inset: 0.0,
             prefer_shorter_ties: false,
             preferred_label_id: Some("edge-label-reserved:0"),
             preferred_label_center: None,

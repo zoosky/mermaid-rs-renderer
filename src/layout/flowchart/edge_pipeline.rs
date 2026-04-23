@@ -689,6 +689,16 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
         } else {
             preferred_label_plan.map(|plan| plan.center)
         };
+        let start_inset = if edge.arrow_start {
+            crate::render::arrowhead_inset(graph.kind, edge.arrow_start_kind)
+        } else {
+            0.0
+        };
+        let end_inset = if edge.arrow_end {
+            crate::render::arrowhead_inset(graph.kind, edge.arrow_end_kind)
+        } else {
+            0.0
+        };
         let route_ctx = RouteContext {
             from_id: &edge.from,
             to_id: &edge.to,
@@ -705,6 +715,8 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
             start_offset: port_info.start_offset,
             end_offset: port_info.end_offset,
             stub_len,
+            start_inset,
+            end_inset,
             prefer_shorter_ties: !avoid_short_tie,
             preferred_label_id,
             preferred_label_center,
@@ -743,6 +755,8 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
                 start_offset: route_ctx.start_offset,
                 end_offset: route_ctx.end_offset,
                 stub_len: route_ctx.stub_len,
+                start_inset: route_ctx.start_inset,
+                end_inset: route_ctx.end_inset,
                 prefer_shorter_ties: route_ctx.prefer_shorter_ties,
                 preferred_label_id: route_ctx.preferred_label_id,
                 preferred_label_center: route_ctx.preferred_label_center,
