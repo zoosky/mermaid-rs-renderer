@@ -2099,14 +2099,13 @@ fn extract_frontmatter_value(input: &str, key: &str) -> Option<String> {
             in_frontmatter = true;
             continue;
         }
-        if in_frontmatter {
-            if let Some((k, v)) = trimmed.split_once(':') {
-                if k.trim() == key {
-                    let val = v.trim().to_string();
-                    if !val.is_empty() {
-                        return Some(val);
-                    }
-                }
+        if in_frontmatter
+            && let Some((k, v)) = trimmed.split_once(':')
+            && k.trim() == key
+        {
+            let val = v.trim().to_string();
+            if !val.is_empty() {
+                return Some(val);
             }
         }
     }
