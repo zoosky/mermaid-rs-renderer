@@ -129,8 +129,7 @@ fn compute_sequence_lane_centers(
             let base_center = if left_idx == 0 {
                 geometry.actor_min_width * 0.5
             } else {
-                geometry.actor_min_width * 0.5
-                    + pitches.iter().take(left_idx).sum::<f32>()
+                geometry.actor_min_width * 0.5 + pitches.iter().take(left_idx).sum::<f32>()
             };
             let default_mid_x = base_center + geometry.lane_pitch * 0.5;
             let max_label_x = default_mid_x + block.width * 0.5;
@@ -184,7 +183,8 @@ pub(super) fn compute_sequence_layout(
         label_blocks.insert(id.clone(), label);
     }
 
-    let actor_height = (max_label_height + geometry.actor_pad_y * 2.0).max(geometry.actor_min_height);
+    let actor_height =
+        (max_label_height + geometry.actor_pad_y * 2.0).max(geometry.actor_min_height);
     let lane_centers = compute_sequence_lane_centers(
         &participants,
         &participant_widths,
@@ -326,7 +326,10 @@ pub(super) fn compute_sequence_layout(
         let from = nodes.get(&edge.from).expect("from node missing");
         let to = nodes.get(&edge.to).expect("to node missing");
         let y = message_ys.get(idx).copied().unwrap_or(message_cursor);
-        let label = edge.label.as_ref().map(|l| measure_sequence_text(l, theme, config));
+        let label = edge
+            .label
+            .as_ref()
+            .map(|l| measure_sequence_text(l, theme, config));
         let start_label = edge
             .start_label
             .as_ref()
@@ -341,7 +344,10 @@ pub(super) fn compute_sequence_layout(
             let x = sequence_lane_center(from);
             vec![(x, y), (x + pad, y), (x + pad, y + pad), (x, y + pad)]
         } else {
-            vec![(sequence_lane_center(from), y), (sequence_lane_center(to), y)]
+            vec![
+                (sequence_lane_center(from), y),
+                (sequence_lane_center(to), y),
+            ]
         };
 
         let mut override_style = resolve_edge_style(idx, graph);
@@ -433,7 +439,6 @@ pub(super) fn compute_sequence_layout(
                     max_y = max_y.max(note.y + note.height);
                 }
             }
-            let header_offset = theme.font_size * 0.6;
             let top_offset = (base_spacing * 1.8).max(theme.font_size * 3.9);
             let bottom_offset = (theme.font_size * 0.85).max(12.0);
             let frame_y = min_y - top_offset;
@@ -449,7 +454,8 @@ pub(super) fn compute_sequence_layout(
                 crate::ir::SequenceFrameKind::Break => "break",
             };
             let label_block = measure_sequence_text(frame_label_text, theme, config);
-            let label_box_w = (label_block.width + theme.font_size * 1.2).max(theme.font_size * 3.1);
+            let label_box_w =
+                (label_block.width + theme.font_size * 1.2).max(theme.font_size * 3.1);
             let label_box_h = (theme.font_size * 1.25).max(20.0);
             let label_box_x = frame_x;
             let label_box_y = frame_y;
@@ -761,7 +767,12 @@ fn place_sequence_label_anchors(
         occupied.push((node.x, node.y, node.width, node.height));
     }
     for lifeline in lifelines {
-        occupied.push((lifeline.x - 1.5, lifeline.y1, 3.0, (lifeline.y2 - lifeline.y1).max(0.0)));
+        occupied.push((
+            lifeline.x - 1.5,
+            lifeline.y1,
+            3.0,
+            (lifeline.y2 - lifeline.y1).max(0.0),
+        ));
     }
     for footbox in footboxes {
         occupied.push((footbox.x, footbox.y, footbox.width, footbox.height));
@@ -769,10 +780,30 @@ fn place_sequence_label_anchors(
     for frame in frames {
         occupied.push(frame.label_box);
         let line_pad = 1.5;
-        occupied.push((frame.x - line_pad, frame.y - line_pad, frame.width + line_pad * 2.0, line_pad * 2.0));
-        occupied.push((frame.x - line_pad, frame.y + frame.height - line_pad, frame.width + line_pad * 2.0, line_pad * 2.0));
-        occupied.push((frame.x - line_pad, frame.y - line_pad, line_pad * 2.0, frame.height + line_pad * 2.0));
-        occupied.push((frame.x + frame.width - line_pad, frame.y - line_pad, line_pad * 2.0, frame.height + line_pad * 2.0));
+        occupied.push((
+            frame.x - line_pad,
+            frame.y - line_pad,
+            frame.width + line_pad * 2.0,
+            line_pad * 2.0,
+        ));
+        occupied.push((
+            frame.x - line_pad,
+            frame.y + frame.height - line_pad,
+            frame.width + line_pad * 2.0,
+            line_pad * 2.0,
+        ));
+        occupied.push((
+            frame.x - line_pad,
+            frame.y - line_pad,
+            line_pad * 2.0,
+            frame.height + line_pad * 2.0,
+        ));
+        occupied.push((
+            frame.x + frame.width - line_pad,
+            frame.y - line_pad,
+            line_pad * 2.0,
+            frame.height + line_pad * 2.0,
+        ));
         let section_pad_x = (theme.font_size * 0.18).max(1.5);
         let section_pad_y = (theme.font_size * 0.15).max(1.2);
         for label in &frame.section_labels {
@@ -1429,27 +1460,13 @@ pub(super) fn finalize_sequence_layout_bounds(layout: &mut Layout) {
     }
     for number in &seq.numbers {
         extend_bounds(
-            &mut min_x,
-            &mut min_y,
-            &mut max_x,
-            &mut max_y,
-            number.x,
-            number.y,
-            0.0,
-            0.0,
+            &mut min_x, &mut min_y, &mut max_x, &mut max_y, number.x, number.y, 0.0, 0.0,
         );
     }
     for edge in &layout.edges {
         for point in &edge.points {
             extend_bounds(
-                &mut min_x,
-                &mut min_y,
-                &mut max_x,
-                &mut max_y,
-                point.0,
-                point.1,
-                0.0,
-                0.0,
+                &mut min_x, &mut min_y, &mut max_x, &mut max_y, point.0, point.1, 0.0, 0.0,
             );
         }
         if let (Some(label), Some((x, y))) = (&edge.label, edge.label_anchor) {

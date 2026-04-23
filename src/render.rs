@@ -145,10 +145,10 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
             let viewbox_y = min_y - pad;
             (width, height, viewbox_x, viewbox_y, width, height)
         } else if is_sequence {
-            let width = (layout.width + SEQUENCE_VIEWBOX_PAD_LEFT + SEQUENCE_VIEWBOX_PAD_RIGHT)
-                .max(1.0);
-            let height = (layout.height + SEQUENCE_VIEWBOX_PAD_TOP + SEQUENCE_VIEWBOX_PAD_BOTTOM)
-                .max(1.0);
+            let width =
+                (layout.width + SEQUENCE_VIEWBOX_PAD_LEFT + SEQUENCE_VIEWBOX_PAD_RIGHT).max(1.0);
+            let height =
+                (layout.height + SEQUENCE_VIEWBOX_PAD_TOP + SEQUENCE_VIEWBOX_PAD_BOTTOM).max(1.0);
             (
                 width,
                 height,

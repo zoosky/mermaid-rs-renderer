@@ -246,7 +246,12 @@ fn assert_sequence_label_clear_of_lifelines(layout: &Layout, fixture: &str) {
             label.height + 4.0,
         );
         for lifeline in &seq.lifelines {
-            let line_rect = (lifeline.x - 1.5, lifeline.y1, 3.0, lifeline.y2 - lifeline.y1);
+            let line_rect = (
+                lifeline.x - 1.5,
+                lifeline.y1,
+                3.0,
+                lifeline.y2 - lifeline.y1,
+            );
             let overlaps_x = label_rect.0 < line_rect.0 + line_rect.2
                 && line_rect.0 < label_rect.0 + label_rect.2;
             let overlaps_y = label_rect.1 < line_rect.1 + line_rect.3
@@ -360,21 +365,48 @@ fn sequence_basic_uses_mermaid_like_actor_geometry_and_framing() {
     let alice = layout.nodes.get("Alice").expect("Alice node");
     let bob = layout.nodes.get("Bob").expect("Bob node");
 
-    assert!((alice.width - 150.0).abs() < 0.01, "Alice width={}", alice.width);
+    assert!(
+        (alice.width - 150.0).abs() < 0.01,
+        "Alice width={}",
+        alice.width
+    );
     assert!((bob.width - 150.0).abs() < 0.01, "Bob width={}", bob.width);
-    assert!((alice.height - 65.0).abs() < 0.01, "Alice height={}", alice.height);
-    assert!((bob.height - 65.0).abs() < 0.01, "Bob height={}", bob.height);
+    assert!(
+        (alice.height - 65.0).abs() < 0.01,
+        "Alice height={}",
+        alice.height
+    );
+    assert!(
+        (bob.height - 65.0).abs() < 0.01,
+        "Bob height={}",
+        bob.height
+    );
     let alice_center = alice.x + alice.width / 2.0;
     let bob_center = bob.x + bob.width / 2.0;
-    assert!((alice_center - 75.0).abs() < 0.01, "Alice center={alice_center}");
+    assert!(
+        (alice_center - 75.0).abs() < 0.01,
+        "Alice center={alice_center}"
+    );
     assert!((bob_center - 275.0).abs() < 0.01, "Bob center={bob_center}");
-    assert!((bob_center - alice_center - 200.0).abs() < 0.01, "lane pitch={}", bob_center - alice_center);
+    assert!(
+        (bob_center - alice_center - 200.0).abs() < 0.01,
+        "lane pitch={}",
+        bob_center - alice_center
+    );
 
     let viewbox = parse_viewbox(&svg).expect("sequence viewBox");
     assert!((viewbox.0 + 50.0).abs() < 0.01, "viewBox x={}", viewbox.0);
     assert!((viewbox.1 + 10.0).abs() < 0.01, "viewBox y={}", viewbox.1);
-    assert!((viewbox.2 - 450.0).abs() < 0.01, "viewBox width={}", viewbox.2);
-    assert!((viewbox.3 - 265.0).abs() < 8.0, "viewBox height={}", viewbox.3);
+    assert!(
+        (viewbox.2 - 450.0).abs() < 0.01,
+        "viewBox width={}",
+        viewbox.2
+    );
+    assert!(
+        (viewbox.3 - 265.0).abs() < 8.0,
+        "viewBox height={}",
+        viewbox.3
+    );
 }
 
 #[test]
@@ -394,9 +426,21 @@ fn sequence_frames_keeps_mermaid_like_lane_pitch() {
         api.x + api.width / 2.0,
         db.x + db.width / 2.0,
     ];
-    assert!((centers[1] - centers[0] - 200.0).abs() < 0.01, "first pitch={}", centers[1] - centers[0]);
-    assert!((centers[2] - centers[1] - 200.0).abs() < 0.01, "second pitch={}", centers[2] - centers[1]);
-    assert!((layout.width - 550.0).abs() < 0.01, "layout width={}", layout.width);
+    assert!(
+        (centers[1] - centers[0] - 200.0).abs() < 0.01,
+        "first pitch={}",
+        centers[1] - centers[0]
+    );
+    assert!(
+        (centers[2] - centers[1] - 200.0).abs() < 0.01,
+        "second pitch={}",
+        centers[2] - centers[1]
+    );
+    assert!(
+        (layout.width - 550.0).abs() < 0.01,
+        "layout width={}",
+        layout.width
+    );
 }
 
 #[test]
@@ -425,21 +469,25 @@ fn sequence_alt_frame_geometry_matches_mermaid() {
     assert!(
         frame.x < client_center,
         "frame x ({}) should be left of Client center ({})",
-        frame.x, client_center
+        frame.x,
+        client_center
     );
     assert!(
         frame.x + frame.width > api_center,
         "frame right edge ({}) should be right of API center ({})",
-        frame.x + frame.width, api_center
+        frame.x + frame.width,
+        api_center
     );
 
     assert!(
         (frame.x - 64.0).abs() < 5.0,
-        "frame x should be ~64 (got {})", frame.x
+        "frame x should be ~64 (got {})",
+        frame.x
     );
     assert!(
         (frame.width - 226.0).abs() < 12.0,
-        "frame width should be ~226 (got {})", frame.width
+        "frame width should be ~226 (got {})",
+        frame.width
     );
 
     let (lbx, lby, lbw, lbh) = frame.label_box;
@@ -451,14 +499,27 @@ fn sequence_alt_frame_geometry_matches_mermaid() {
         (lby - frame.y).abs() < 0.01,
         "label box y should match frame y"
     );
-    assert!(lbw > 30.0 && lbw < 80.0, "label box width should be reasonable (got {})", lbw);
-    assert!(lbh > 10.0 && lbh < 30.0, "label box height should be reasonable (got {})", lbh);
+    assert!(
+        lbw > 30.0 && lbw < 80.0,
+        "label box width should be reasonable (got {})",
+        lbw
+    );
+    assert!(
+        lbh > 10.0 && lbh < 30.0,
+        "label box height should be reasonable (got {})",
+        lbh
+    );
 
-    assert!(!frame.dividers.is_empty(), "alt frame should have at least one divider");
+    assert!(
+        !frame.dividers.is_empty(),
+        "alt frame should have at least one divider"
+    );
     let div_y = frame.dividers[0];
     assert!(
         div_y > frame.y && div_y < frame.y + frame.height,
         "divider y ({}) should be inside frame ({} to {})",
-        div_y, frame.y, frame.y + frame.height
+        div_y,
+        frame.y,
+        frame.y + frame.height
     );
 }
