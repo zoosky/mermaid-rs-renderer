@@ -2,7 +2,7 @@
 // Moved from render.rs — all functions here work with pure geometry,
 // no SVG dependency.
 
-use super::{EdgeLayout, NodeLayout, SubgraphLayout};
+use super::{EdgeLayout, NodeLayout, SubgraphLayout, TextBlock};
 use crate::config::LayoutConfig;
 use crate::ir::DiagramKind;
 use crate::theme::Theme;
@@ -104,6 +104,10 @@ fn edge_target_distance(kind: DiagramKind, label_h: f32, label_pad_y: f32) -> f3
         DiagramKind::Flowchart => (label_h * 0.52 + label_pad_y * 0.65 + 0.4).max(4.8),
         _ => (label_h * 0.65 + label_pad_y).max(6.0),
     }
+}
+
+fn flowchart_own_gap_allowed(gap: f32, max_gap: f32) -> bool {
+    gap.is_finite() && (OWN_EDGE_GAP_TARGET_FLOWCHART * 0.5..=max_gap).contains(&gap)
 }
 
 fn sweep_bias(kind: DiagramKind, tangent_step: f32, normal_step: f32) -> f32 {
@@ -245,6 +249,15 @@ fn resolve_center_labels(
             rect
         };
         edge.label_anchor = Some(clamped);
+        if kind == DiagramKind::Flowchart {
+            // Flowchart routing can seed labels with a reserved/preferred center so
+            // the path router avoids the label area. That seed is a good starting
+            // point, but it must not become an immovable constraint. Dense
+            // bidirectional graphs can produce overlapping reserved centers, and
+            // the flowchart-specific de-overlap pass below needs freedom to move
+            // them to nearby clear positions.
+            continue;
+        }
         occupied_grid.insert(occupied.len(), &occupied_rect);
         occupied.push(occupied_rect);
         fixed_center_indices.insert(idx);
@@ -419,7 +432,11 @@ fn resolve_center_labels(
                 );
                 if let Some(max_gap) = max_own_gap {
                     let own_gap = polyline_rect_distance(&edge.points, &rect);
-                    if own_gap.is_finite() && own_gap > max_gap {
+                    if kind == DiagramKind::Flowchart {
+                        if !flowchart_own_gap_allowed(own_gap, max_gap) {
+                            return;
+                        }
+                    } else if own_gap.is_finite() && own_gap > max_gap {
                         return;
                     }
                 }
@@ -642,6 +659,105 @@ fn resolve_center_labels(
         label_pad_y,
         &fixed_center_indices,
     );
+    if kind == DiagramKind::Flowchart {
+        nudge_flowchart_labels_clear_of_own_paths(edges, bounds);
+    }
+}
+
+fn label_core_rect(center: (f32, f32), label: &TextBlock) -> Rect {
+    (
+        center.0 - label.width / 2.0,
+        center.1 - label.height / 2.0,
+        label.width,
+        label.height,
+    )
+}
+
+fn path_intersects_rect(points: &[(f32, f32)], rect: &Rect) -> bool {
+    points
+        .windows(2)
+        .any(|segment| segment_intersects_rect(segment[0], segment[1], rect))
+}
+
+fn nudge_flowchart_labels_clear_of_own_paths(edges: &mut [EdgeLayout], bounds: Option<(f32, f32)>) {
+    let mut label_rects: Vec<Option<Rect>> = edges
+        .iter()
+        .map(|edge| {
+            let label = edge.label.as_ref()?;
+            let center = edge.label_anchor?;
+            Some(label_core_rect(center, label))
+        })
+        .collect();
+
+    for idx in 0..edges.len() {
+        let Some(label) = edges[idx].label.as_ref() else {
+            continue;
+        };
+        let Some(center) = edges[idx].label_anchor else {
+            continue;
+        };
+        let current_rect = label_core_rect(center, label);
+        if !path_intersects_rect(&edges[idx].points, &current_rect) {
+            continue;
+        }
+
+        let mut best_center = None;
+        let mut best_cost = f32::INFINITY;
+        let directions = [
+            (0.0, -1.0),
+            (0.0, 1.0),
+            (-1.0, 0.0),
+            (1.0, 0.0),
+            (-0.707, -0.707),
+            (0.707, -0.707),
+            (-0.707, 0.707),
+            (0.707, 0.707),
+        ];
+        for step in [2.0, 4.0, 6.0, 8.0, 12.0, 16.0, 24.0, 32.0] {
+            for (dx, dy) in directions {
+                let mut candidate = (center.0 + dx * step, center.1 + dy * step);
+                if let Some(bound) = bounds {
+                    candidate = clamp_label_center_to_bounds(
+                        candidate,
+                        label.width,
+                        label.height,
+                        0.0,
+                        0.0,
+                        bound,
+                    );
+                }
+                let rect = label_core_rect(candidate, label);
+                if path_intersects_rect(&edges[idx].points, &rect) {
+                    continue;
+                }
+                let mut overlap = 0.0f32;
+                for (other_idx, other) in label_rects.iter().enumerate() {
+                    if other_idx == idx {
+                        continue;
+                    }
+                    if let Some(other) = other {
+                        overlap += overlap_area(&rect, other);
+                    }
+                }
+                let outside = bounds
+                    .map(|bound| outside_area(&rect, bound))
+                    .unwrap_or(0.0);
+                let cost = step + overlap * 10.0 + outside * 20.0;
+                if cost < best_cost {
+                    best_cost = cost;
+                    best_center = Some(candidate);
+                }
+            }
+            if best_center.is_some() {
+                break;
+            }
+        }
+
+        if let Some(center) = best_center {
+            edges[idx].label_anchor = Some(center);
+            label_rects[idx] = Some(label_core_rect(center, label));
+        }
+    }
 }
 
 fn deoverlap_flowchart_center_labels(
@@ -862,7 +978,7 @@ fn deoverlap_flowchart_center_labels(
                             label_pad_y,
                         );
                         let own_gap = polyline_rect_distance(&entry_snapshot.edge_points, &rect);
-                        if own_gap.is_finite() && own_gap > FLOWCHART_OWN_EDGE_HARD_MAX_GAP {
+                        if !flowchart_own_gap_allowed(own_gap, FLOWCHART_OWN_EDGE_HARD_MAX_GAP) {
                             continue;
                         }
                     }
@@ -986,8 +1102,10 @@ fn deoverlap_flowchart_center_labels(
                             if enforce_gap_limit {
                                 let own_gap =
                                     polyline_rect_distance(&entry_snapshot.edge_points, &rect);
-                                if own_gap.is_finite() && own_gap > FLOWCHART_OWN_EDGE_HARD_MAX_GAP
-                                {
+                                if !flowchart_own_gap_allowed(
+                                    own_gap,
+                                    FLOWCHART_OWN_EDGE_HARD_MAX_GAP,
+                                ) {
                                     continue;
                                 }
                             }

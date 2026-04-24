@@ -50,6 +50,17 @@ fn segment_intersects_rect(a: (f32, f32), b: (f32, f32), rect: (f32, f32, f32, f
 
     true
 }
+
+fn rect_overlap_area(a: (f32, f32, f32, f32), b: (f32, f32, f32, f32)) -> f32 {
+    let overlap_x = (a.0 + a.2).min(b.0 + b.2) - a.0.max(b.0);
+    let overlap_y = (a.1 + a.3).min(b.1 + b.3) - a.1.max(b.1);
+    if overlap_x > 0.0 && overlap_y > 0.0 {
+        overlap_x * overlap_y
+    } else {
+        0.0
+    }
+}
+
 fn assert_layout_is_well_formed(layout: &Layout, fixture: &str) {
     assert_finite(layout.width, fixture, "layout.width");
     assert_finite(layout.height, fixture, "layout.height");
@@ -228,6 +239,36 @@ fn assert_flowchart_visual_invariants(layout: &Layout, fixture: &str) {
             edge.from, edge.to
         );
     }
+
+    if fixture == "flowchart/bidirectional_labels.mmd" {
+        let labels: Vec<_> = layout
+            .edges
+            .iter()
+            .filter_map(|edge| {
+                let label = edge.label.as_ref()?;
+                let anchor = edge.label_anchor?;
+                Some((
+                    edge.from.as_str(),
+                    edge.to.as_str(),
+                    (
+                        anchor.0 - label.width / 2.0,
+                        anchor.1 - label.height / 2.0,
+                        label.width,
+                        label.height,
+                    ),
+                ))
+            })
+            .collect();
+        for (idx, (from, to, rect)) in labels.iter().enumerate() {
+            for (other_from, other_to, other_rect) in labels.iter().skip(idx + 1) {
+                let overlap = rect_overlap_area(*rect, *other_rect);
+                assert!(
+                    overlap <= 1.0,
+                    "{fixture}: edge labels {from}->{to} and {other_from}->{other_to} overlap by {overlap:.2}px²"
+                );
+            }
+        }
+    }
 }
 
 fn assert_sequence_label_clear_of_lifelines(layout: &Layout, fixture: &str) {
@@ -318,6 +359,7 @@ fn render_all_fixtures() {
         "flowchart/subgraph_direction.mmd",
         "flowchart/subgraph_empty.mmd",
         "flowchart/cycles.mmd",
+        "flowchart/bidirectional_labels.mmd",
         "gantt/basic.mmd",
         "gitgraph/basic.mmd",
         "journey/basic.mmd",
