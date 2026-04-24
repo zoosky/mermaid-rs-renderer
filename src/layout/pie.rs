@@ -52,6 +52,8 @@ pub(super) fn compute_pie_layout(graph: &Graph, theme: &Theme, config: &LayoutCo
         index: usize,
         label: String,
         value: f32,
+        #[cfg(feature = "source-provenance")]
+        source_loc: Option<(u32, u32)>,
     }
 
     let mut filtered: Vec<PieDatum> = Vec::new();
@@ -67,6 +69,8 @@ pub(super) fn compute_pie_layout(graph: &Graph, theme: &Theme, config: &LayoutCo
                 index: idx,
                 label: slice.label.clone(),
                 value,
+                #[cfg(feature = "source-provenance")]
+                source_loc: slice.source_loc,
             });
         }
     }
@@ -110,6 +114,8 @@ pub(super) fn compute_pie_layout(graph: &Graph, theme: &Theme, config: &LayoutCo
             start_angle: angle,
             end_angle: angle + span,
             color,
+            #[cfg(feature = "source-provenance")]
+            source_loc: datum.source_loc,
         });
         angle += span;
     }

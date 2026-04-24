@@ -93,7 +93,7 @@ pub(super) fn compute_architecture_layout(
             style,
             icon: sub.icon.clone(),
             #[cfg(feature = "source-provenance")]
-            source_loc: None,
+            source_loc: sub.source_loc,
         });
 
         current_y += group_height + GROUP_GAP_Y;
@@ -206,7 +206,7 @@ pub(super) fn compute_architecture_layout(
             style: edge.style,
             override_style,
             #[cfg(feature = "source-provenance")]
-            source_loc: None,
+            source_loc: edge.source_loc,
         });
     }
 

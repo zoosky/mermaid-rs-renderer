@@ -4,7 +4,7 @@
 //! (the default). When disabled, these tests compile to no-ops so
 //! `cargo test --no-default-features --features cli,png` stays green.
 //!
-//! Coverage for f160e Phase 1 flowchart acceptance criteria:
+//! Coverage:
 //! - Every Node gets a `data-source-line` attribute on its `<g>` wrapper
 //! - Every Edge gets a `data-source-line` attribute on its `<path>`
 //! - Every Subgraph gets a `data-source-line` attribute on its `<g>` wrapper

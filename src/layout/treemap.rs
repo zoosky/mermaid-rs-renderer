@@ -182,7 +182,7 @@ fn layout_treemap_nodes(
                     hidden: false,
                     icon: None,
                     #[cfg(feature = "source-provenance")]
-                    source_loc: None,
+                    source_loc: node.source_loc,
                 },
             );
         }

@@ -85,3 +85,17 @@ fn state_start_end_markers_do_not_leak_synthetic_lines() {
     assert!(svg.contains(r#"data-source-line="2""#));
     assert!(svg.contains(r#"data-source-line="3""#));
 }
+
+#[test]
+fn state_note_carries_line() {
+    //   1: stateDiagram-v2
+    //   2: note right of Working : Actively processing
+    //   3: Working --> Idle
+    let svg = render(
+        "stateDiagram-v2\nnote right of Working : Actively processing\nWorking --> Idle\n",
+    );
+    assert!(
+        svg.contains(r#"data-source-line="2""#),
+        "state note at line 2 missing; SVG was:\n{svg}"
+    );
+}

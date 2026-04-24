@@ -92,6 +92,9 @@ pub struct SequenceNote {
 pub struct PieSlice {
     pub label: String,
     pub value: f32,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -99,6 +102,9 @@ pub struct QuadrantPoint {
     pub label: String,
     pub x: f32,
     pub y: f32,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,6 +135,9 @@ pub struct GanttTask {
     pub after: Option<String>,
     pub section: Option<String>,
     pub status: Option<GanttStatus>,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,6 +160,9 @@ pub struct GitGraphCommit {
     pub parents: Vec<String>,
     pub branch: String,
     pub custom_id: bool,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -233,6 +245,9 @@ pub struct C4Shape {
     pub bg_color: Option<String>,
     pub border_color: Option<String>,
     pub font_color: Option<String>,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -248,6 +263,10 @@ pub struct C4Boundary {
     pub bg_color: Option<String>,
     pub border_color: Option<String>,
     pub font_color: Option<String>,
+    /// Line of the opening boundary directive, not the closing `}`.
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -276,6 +295,9 @@ pub struct C4Rel {
     pub offset_y: f32,
     pub line_color: Option<String>,
     pub text_color: Option<String>,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -300,6 +322,9 @@ pub struct StateNote {
     pub position: StateNotePosition,
     pub target: String,
     pub label: String,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -508,6 +533,9 @@ pub struct MindmapNode {
     pub icon: Option<String>,
     pub class: Option<String>,
     pub children: Vec<String>,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -527,6 +555,10 @@ pub struct XYSeries {
     pub kind: XYSeriesKind,
     pub label: Option<String>,
     pub values: Vec<f32>,
+    /// Line of the `bar` / `line` directive. See
+    /// `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -545,6 +577,9 @@ pub struct TimelineEvent {
     pub time: String,
     pub events: Vec<String>,
     pub section: Option<String>,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -565,6 +600,9 @@ pub struct BlockNode {
     pub id: String,
     pub span: usize,
     pub is_space: bool,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 impl Graph {

@@ -311,6 +311,8 @@ pub(super) fn compute_gitgraph_layout(
             custom_type: commit.custom_type,
             tags: tag_layouts,
             label,
+            #[cfg(feature = "source-provenance")]
+            source_loc: commit.source_loc,
         });
 
         if is_vertical {

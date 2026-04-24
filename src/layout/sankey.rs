@@ -43,6 +43,8 @@ pub(super) fn compute_sankey_layout(graph: &Graph, theme: &Theme, config: &Layou
         from_idx: usize,
         to_idx: usize,
         value: f32,
+        #[cfg(feature = "source-provenance")]
+        source_loc: Option<(u32, u32)>,
     }
 
     let mut edges_data: Vec<SankeyEdgeData> = Vec::new();
@@ -70,6 +72,8 @@ pub(super) fn compute_sankey_layout(graph: &Graph, theme: &Theme, config: &Layou
             from_idx,
             to_idx,
             value,
+            #[cfg(feature = "source-provenance")]
+            source_loc: edge.source_loc,
         });
         outgoing[from_idx].push(edge_idx);
         incoming[to_idx].push(edge_idx);
@@ -321,7 +325,7 @@ pub(super) fn compute_sankey_layout(graph: &Graph, theme: &Theme, config: &Layou
                 label_color: None,
             },
             #[cfg(feature = "source-provenance")]
-            source_loc: None,
+            source_loc: edge.source_loc,
         });
         sankey_links.push(SankeyLinkLayout {
             source: from_id,
@@ -333,6 +337,8 @@ pub(super) fn compute_sankey_layout(graph: &Graph, theme: &Theme, config: &Layou
             color_start: color_start.clone(),
             color_end: color_end.clone(),
             gradient_id,
+            #[cfg(feature = "source-provenance")]
+            source_loc: edge.source_loc,
         });
     }
 

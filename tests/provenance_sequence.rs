@@ -17,8 +17,8 @@ use mermaid_rs_renderer::{RenderOptions, parse_mermaid, render_svg};
 /// Render without the preflight validator, which (at fork rev 84e95ab)
 /// treats any bare `end` as a subgraph close and rejects sequence
 /// `alt`/`loop`/`par`/`opt` blocks that use `end` to mark their close.
-/// Fixing the validator to understand sequence frames is out of scope
-/// for f160e and tracked separately.
+/// Fixing the validator to understand sequence frames is tracked
+/// separately.
 fn render(input: &str) -> String {
     let parsed = parse_mermaid(input).expect("parse should succeed");
     let options = RenderOptions::default();

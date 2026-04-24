@@ -104,6 +104,8 @@ pub(super) fn compute_quadrant_layout(
                 x: px,
                 y: py,
                 color: palette[i % palette.len()].clone(),
+                #[cfg(feature = "source-provenance")]
+                source_loc: p.source_loc,
             }
         })
         .collect();

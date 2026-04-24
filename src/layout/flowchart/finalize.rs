@@ -48,6 +48,8 @@ pub(in crate::layout) fn finalize_graph_layout(
                 label,
                 position: note.position,
                 target: note.target.clone(),
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             });
         }
     }

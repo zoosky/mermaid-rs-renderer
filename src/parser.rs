@@ -193,42 +193,10 @@ fn preprocess_input_numbered(
 ) -> Result<(Vec<(u32, String)>, Option<serde_json::Value>)> {
     let mut init_config: Option<serde_json::Value> = None;
     let mut lines = Vec::new();
+    let mut in_frontmatter = false;
 
     for (idx, raw_line) in input.lines().enumerate() {
         let line_no = (idx as u32) + 1;
-        let trimmed_line = raw_line.trim();
-        if trimmed_line.is_empty() {
-            continue;
-        }
-        if let Some(caps) = INIT_RE.captures(trimmed_line) {
-            if let Some(json_str) = caps.get(1).map(|m| m.as_str()) {
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_str) {
-                    init_config = Some(value);
-                } else if let Ok(value) = json5::from_str::<serde_json::Value>(json_str) {
-                    init_config = Some(value);
-                }
-            }
-            continue;
-        }
-        if trimmed_line.starts_with("%%") {
-            continue;
-        }
-        let without_comment = strip_trailing_comment(trimmed_line);
-        if without_comment.is_empty() {
-            continue;
-        }
-        lines.push((line_no, without_comment.to_string()));
-    }
-
-    Ok((lines, init_config))
-}
-
-fn preprocess_input(input: &str) -> Result<(Vec<String>, Option<serde_json::Value>)> {
-    let mut init_config: Option<serde_json::Value> = None;
-    let mut lines = Vec::new();
-    let mut in_frontmatter = false;
-
-    for raw_line in input.lines() {
         let trimmed_line = raw_line.trim();
         if trimmed_line.is_empty() {
             continue;
@@ -257,19 +225,33 @@ fn preprocess_input(input: &str) -> Result<(Vec<String>, Option<serde_json::Valu
         if without_comment.is_empty() {
             continue;
         }
-        lines.push(without_comment.to_string());
+        lines.push((line_no, without_comment.to_string()));
     }
 
     Ok((lines, init_config))
 }
 
-fn preprocess_input_keep_indent(input: &str) -> Result<(Vec<String>, Option<serde_json::Value>)> {
+/// Variant of `preprocess_input_keep_indent` that also returns the 1-based
+/// line number for each retained statement.  Used by parsers that need both
+/// indent-sensitive whitespace and source-line provenance.
+fn preprocess_input_keep_indent_numbered(
+    input: &str,
+) -> Result<(Vec<(u32, String)>, Option<serde_json::Value>)> {
     let mut init_config: Option<serde_json::Value> = None;
     let mut lines = Vec::new();
+    let mut in_frontmatter = false;
 
-    for raw_line in input.lines() {
+    for (idx, raw_line) in input.lines().enumerate() {
+        let line_no = (idx as u32) + 1;
         let trimmed_line = raw_line.trim();
         if trimmed_line.is_empty() {
+            continue;
+        }
+        if trimmed_line == "---" {
+            in_frontmatter = !in_frontmatter;
+            continue;
+        }
+        if in_frontmatter {
             continue;
         }
         if let Some(caps) = INIT_RE.captures(trimmed_line) {
@@ -289,11 +271,17 @@ fn preprocess_input_keep_indent(input: &str) -> Result<(Vec<String>, Option<serd
         if without_comment.trim().is_empty() {
             continue;
         }
-        lines.push(without_comment);
+        lines.push((line_no, without_comment));
     }
 
     Ok((lines, init_config))
 }
+
+// The non-numbered `preprocess_input` and `preprocess_input_keep_indent`
+// helpers were removed: every parser now uses the `_numbered` variants
+// so it can populate `source_loc` on the IR elements it constructs.
+// Callers that do not need the line number bind it with
+// `#[cfg(not(feature = "source-provenance"))] let _ = line_no;`.
 
 fn parse_flowchart(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
@@ -1277,14 +1265,16 @@ fn parse_class_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::Class;
     graph.direction = Direction::TopDown;
-    let (lines, init_config) = preprocess_input(input)?;
+    let (lines, init_config) = preprocess_input_numbered(input)?;
 
     let mut members: HashMap<String, Vec<String>> = HashMap::new();
     let mut stereotypes: HashMap<String, Vec<String>> = HashMap::new();
     let mut labels: HashMap<String, String> = HashMap::new();
     let mut current_class: Option<String> = None;
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         let line = raw_line.trim();
         if line.is_empty() {
             continue;
@@ -1372,7 +1362,7 @@ fn parse_class_diagram(input: &str) -> Result<ParseOutput> {
                 end_decoration: meta.end_decoration,
                 style: meta.style,
                 #[cfg(feature = "source-provenance")]
-                source_loc: None,
+                source_loc: Some((line_no, 0)),
             });
             continue;
         }
@@ -1388,6 +1378,12 @@ fn parse_class_diagram(input: &str) -> Result<ParseOutput> {
                     labels.get(&id).cloned(),
                     Some(crate::ir::NodeShape::Rectangle),
                 );
+                #[cfg(feature = "source-provenance")]
+                if let Some(n) = graph.nodes.get_mut(&id) {
+                    if n.source_loc.is_none() {
+                        n.source_loc = Some((line_no, 0));
+                    }
+                }
                 if let Some(body) = body {
                     for entry in split_class_body(&body) {
                         if !entry.is_empty() {
@@ -1601,12 +1597,14 @@ fn parse_er_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::Er;
     graph.direction = Direction::TopDown;
-    let (lines, init_config) = preprocess_input(input)?;
+    let (lines, init_config) = preprocess_input_numbered(input)?;
 
     let mut members: HashMap<String, Vec<String>> = HashMap::new();
     let mut current_entity: Option<String> = None;
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         let line = raw_line.trim();
         if line.is_empty() {
             continue;
@@ -1668,7 +1666,7 @@ fn parse_er_diagram(input: &str) -> Result<ParseOutput> {
                 end_decoration: right_decoration,
                 style,
                 #[cfg(feature = "source-provenance")]
-                source_loc: None,
+                source_loc: Some((line_no, 0)),
             });
             continue;
         }
@@ -1678,6 +1676,12 @@ fn parse_er_diagram(input: &str) -> Result<ParseOutput> {
             let name = strip_quotes(name);
             if !name.is_empty() {
                 graph.ensure_node(&name, None, Some(crate::ir::NodeShape::RoundRect));
+                #[cfg(feature = "source-provenance")]
+                if let Some(n) = graph.nodes.get_mut(&name) {
+                    if n.source_loc.is_none() {
+                        n.source_loc = Some((line_no, 0));
+                    }
+                }
                 current_entity = Some(name.clone());
                 let tail = line[open_idx + 1..].trim();
                 if let Some(close_idx) = tail.find('}') {
@@ -1717,9 +1721,11 @@ fn parse_er_diagram(input: &str) -> Result<ParseOutput> {
 fn parse_pie_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::Pie;
-    let (lines, init_config) = preprocess_input(input)?;
+    let (lines, init_config) = preprocess_input_numbered(input)?;
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         let line = raw_line.trim();
         if line.is_empty() {
             continue;
@@ -1753,7 +1759,12 @@ fn parse_pie_diagram(input: &str) -> Result<ParseOutput> {
             continue;
         }
         if let Some((label, value)) = parse_pie_slice_line(line) {
-            graph.pie_slices.push(crate::ir::PieSlice { label, value });
+            graph.pie_slices.push(crate::ir::PieSlice {
+                label,
+                value,
+                #[cfg(feature = "source-provenance")]
+                source_loc: Some((line_no, 0)),
+            });
         }
     }
 
@@ -1778,12 +1789,14 @@ fn parse_mindmap_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::Mindmap;
     graph.direction = Direction::LeftRight;
-    let (lines, init_config) = preprocess_input_keep_indent(input)?;
+    let (lines, init_config) = preprocess_input_keep_indent_numbered(input)?;
     let mut stack: Vec<String> = Vec::new();
     let mut base_indent: Option<usize> = None;
     let mut node_index: HashMap<String, usize> = HashMap::new();
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         let trimmed = raw_line.trim();
         if trimmed.is_empty() {
             continue;
@@ -1870,6 +1883,8 @@ fn parse_mindmap_diagram(input: &str) -> Result<ParseOutput> {
             icon: None,
             class: None,
             children: Vec::new(),
+            #[cfg(feature = "source-provenance")]
+            source_loc: Some((line_no, 0)),
         };
 
         let idx = graph.mindmap.nodes.len();
@@ -1990,12 +2005,14 @@ fn parse_journey_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::Journey;
     graph.direction = Direction::LeftRight;
-    let (lines, init_config) = preprocess_input(input)?;
+    let (lines, init_config) = preprocess_input_numbered(input)?;
 
     let mut current_section: Option<usize> = None;
     let mut last_task: Option<String> = None;
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         let line = raw_line.trim();
         if line.is_empty() {
             continue;
@@ -2039,10 +2056,14 @@ fn parse_journey_diagram(input: &str) -> Result<ParseOutput> {
                 Some(node_label),
                 Some(crate::ir::NodeShape::Rectangle),
             );
-            if let Some(score) = score
-                && let Some(node) = graph.nodes.get_mut(&node_id)
-            {
-                node.value = Some(score);
+            if let Some(node) = graph.nodes.get_mut(&node_id) {
+                if let Some(s) = score {
+                    node.value = Some(s);
+                }
+                #[cfg(feature = "source-provenance")]
+                if node.source_loc.is_none() {
+                    node.source_loc = Some((line_no, 0));
+                }
             }
             if let Some(idx) = current_section
                 && let Some(subgraph) = graph.subgraphs.get_mut(idx)
@@ -2101,27 +2122,33 @@ fn parse_timeline_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::Timeline;
     graph.direction = Direction::LeftRight;
-    let (lines, init_config) = preprocess_input(input)?;
+    let (lines, init_config) = preprocess_input_numbered(input)?;
 
     let mut current_section: Option<String> = None;
     let mut pending_time: Option<String> = None;
     let mut pending_events: Vec<String> = Vec::new();
+    let mut pending_line_no: u32 = 0;
 
     let flush_pending = |graph: &mut Graph,
                          pending_time: &mut Option<String>,
                          pending_events: &mut Vec<String>,
-                         current_section: &Option<String>| {
+                         current_section: &Option<String>,
+                         flush_line_no: u32| {
         if let Some(time) = pending_time.take() {
             graph.timeline.events.push(crate::ir::TimelineEvent {
                 time,
                 events: std::mem::take(pending_events),
                 section: current_section.clone(),
+                #[cfg(feature = "source-provenance")]
+                source_loc: Some((flush_line_no, 0)),
             });
+            #[cfg(not(feature = "source-provenance"))]
+            let _ = flush_line_no;
         }
         pending_events.clear();
     };
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
         let line = raw_line.trim();
         if line.is_empty() {
             continue;
@@ -2144,6 +2171,7 @@ fn parse_timeline_diagram(input: &str) -> Result<ParseOutput> {
                 &mut pending_time,
                 &mut pending_events,
                 &current_section,
+                pending_line_no,
             );
 
             let label = line.get(7..).unwrap_or("").trim();
@@ -2164,8 +2192,10 @@ fn parse_timeline_diagram(input: &str) -> Result<ParseOutput> {
                     &mut pending_time,
                     &mut pending_events,
                     &current_section,
+                    pending_line_no,
                 );
                 pending_time = Some(time_part.to_string());
+                pending_line_no = line_no;
 
                 // Parse events (can be multiple separated by :)
                 for event in events_part.split(':') {
@@ -2184,6 +2214,7 @@ fn parse_timeline_diagram(input: &str) -> Result<ParseOutput> {
         &mut pending_time,
         &mut pending_events,
         &current_section,
+        pending_line_no,
     );
 
     Ok(ParseOutput { graph, init_config })
@@ -2217,7 +2248,7 @@ fn parse_gantt_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::Gantt;
     graph.direction = Direction::LeftRight;
-    let (lines, init_config) = preprocess_input(input)?;
+    let (lines, init_config) = preprocess_input_numbered(input)?;
 
     graph.gantt_display_mode = extract_frontmatter_value(input, "displayMode");
 
@@ -2225,7 +2256,9 @@ fn parse_gantt_diagram(input: &str) -> Result<ParseOutput> {
     let mut current_section_name: Option<String> = None;
     let mut last_task: Option<String> = None;
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         let line = raw_line.trim();
         if line.is_empty() {
             continue;
@@ -2293,6 +2326,8 @@ fn parse_gantt_diagram(input: &str) -> Result<ParseOutput> {
                 after: after.clone(),
                 section: current_section_name.clone(),
                 status,
+                #[cfg(feature = "source-provenance")]
+                source_loc: Some((line_no, 0)),
             });
 
             graph.ensure_node(
@@ -2488,12 +2523,14 @@ fn parse_requirement_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::Requirement;
     graph.direction = Direction::TopDown;
-    let (lines, init_config) = preprocess_input(input)?;
+    let (lines, init_config) = preprocess_input_numbered(input)?;
 
     let mut attributes: HashMap<String, Vec<String>> = HashMap::new();
     let mut current_id: Option<String> = None;
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         let line = raw_line.trim();
         if line.is_empty() {
             continue;
@@ -2540,7 +2577,7 @@ fn parse_requirement_diagram(input: &str) -> Result<ParseOutput> {
                 end_decoration: None,
                 style: crate::ir::EdgeStyle::Solid,
                 #[cfg(feature = "source-provenance")]
-                source_loc: None,
+                source_loc: Some((line_no, 0)),
             });
             continue;
         }
@@ -2558,6 +2595,12 @@ fn parse_requirement_diagram(input: &str) -> Result<ParseOutput> {
                     format!("<<{}>>\n{}", kind_label, id)
                 };
                 graph.ensure_node(&id, Some(label), Some(crate::ir::NodeShape::Rectangle));
+                #[cfg(feature = "source-provenance")]
+                if let Some(n) = graph.nodes.get_mut(&id) {
+                    if n.source_loc.is_none() {
+                        n.source_loc = Some((line_no, 0));
+                    }
+                }
                 current_id = Some(id.clone());
                 let tail = line[open_idx + 1..].trim();
                 if let Some(close_idx) = tail.find('}') {
@@ -2622,7 +2665,7 @@ fn parse_gitgraph_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::GitGraph;
     graph.direction = Direction::LeftRight;
-    let (lines, init_config) = preprocess_input(input)?;
+    let (lines, init_config) = preprocess_input_numbered(input)?;
 
     let mut branch_heads: HashMap<String, Option<String>> = HashMap::new();
     let mut branch_insertion: HashMap<String, usize> = HashMap::new();
@@ -2641,7 +2684,9 @@ fn parse_gitgraph_diagram(input: &str) -> Result<ParseOutput> {
     let mut commit_seq: usize = 0;
     let mut rng = GitGraphIdRng::new(hash_seed(input));
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         let line = raw_line.trim();
         if line.is_empty() {
             continue;
@@ -2733,6 +2778,8 @@ fn parse_gitgraph_diagram(input: &str) -> Result<ParseOutput> {
                 parents,
                 branch: current_branch.clone(),
                 custom_id,
+                #[cfg(feature = "source-provenance")]
+                source_loc: Some((line_no, 0)),
             };
             commit_seq += 1;
             graph.gitgraph.commits.push(commit);
@@ -2766,6 +2813,8 @@ fn parse_gitgraph_diagram(input: &str) -> Result<ParseOutput> {
                 parents,
                 branch: current_branch.clone(),
                 custom_id,
+                #[cfg(feature = "source-provenance")]
+                source_loc: Some((line_no, 0)),
             };
             commit_seq += 1;
             graph.gitgraph.commits.push(commit);
@@ -2955,11 +3004,15 @@ fn parse_c4_diagram(input: &str) -> Result<ParseOutput> {
         bg_color: None,
         border_color: None,
         font_color: None,
+        #[cfg(feature = "source-provenance")]
+        source_loc: None,
     });
-    let (lines, init_config) = preprocess_input(input)?;
+    let (lines, init_config) = preprocess_input_numbered(input)?;
     let mut boundary_stack: Vec<String> = vec!["global".to_string()];
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         let line = raw_line.trim();
         if line.is_empty() {
             continue;
@@ -2980,13 +3033,13 @@ fn parse_c4_diagram(input: &str) -> Result<ParseOutput> {
             let before = line[..brace_idx].trim();
             let after = line[brace_idx + 1..].trim();
             if !before.is_empty() {
-                process_c4_line(before, &mut graph.c4, &mut boundary_stack);
+                process_c4_line(before, &mut graph.c4, &mut boundary_stack, line_no);
             }
             if !after.is_empty() {
                 let closes = after.ends_with('}');
                 let after_trimmed = after.trim_end_matches('}').trim();
                 if !after_trimmed.is_empty() {
-                    process_c4_line(after_trimmed, &mut graph.c4, &mut boundary_stack);
+                    process_c4_line(after_trimmed, &mut graph.c4, &mut boundary_stack, line_no);
                 }
                 if closes && boundary_stack.len() > 1 {
                     boundary_stack.pop();
@@ -2995,13 +3048,19 @@ fn parse_c4_diagram(input: &str) -> Result<ParseOutput> {
             continue;
         }
 
-        process_c4_line(line, &mut graph.c4, &mut boundary_stack);
+        process_c4_line(line, &mut graph.c4, &mut boundary_stack, line_no);
     }
 
     Ok(ParseOutput { graph, init_config })
 }
 
-fn process_c4_line(line: &str, c4: &mut crate::ir::C4Data, boundary_stack: &mut Vec<String>) {
+fn process_c4_line(
+    line: &str,
+    c4: &mut crate::ir::C4Data,
+    boundary_stack: &mut Vec<String>,
+    #[cfg(feature = "source-provenance")] line_no: u32,
+    #[cfg(not(feature = "source-provenance"))] _line_no: u32,
+) {
     if let Some((func, args)) = parse_function_call(line) {
         let func_lower = func.to_ascii_lowercase();
         let (positional, kv) = parse_c4_args(&args);
@@ -3034,6 +3093,8 @@ fn process_c4_line(line: &str, c4: &mut crate::ir::C4Data, boundary_stack: &mut 
                 bg_color: None,
                 border_color: None,
                 font_color: None,
+                #[cfg(feature = "source-provenance")]
+                source_loc: Some((line_no, 0)),
             });
             boundary_stack.push(id);
             return;
@@ -3075,6 +3136,8 @@ fn process_c4_line(line: &str, c4: &mut crate::ir::C4Data, boundary_stack: &mut 
                     offset_y: 0.0,
                     line_color: None,
                     text_color: None,
+                    #[cfg(feature = "source-provenance")]
+                    source_loc: Some((line_no, 0)),
                 });
             }
             return;
@@ -3259,6 +3322,8 @@ fn process_c4_line(line: &str, c4: &mut crate::ir::C4Data, boundary_stack: &mut 
                 bg_color: None,
                 border_color: None,
                 font_color: None,
+                #[cfg(feature = "source-provenance")]
+                source_loc: Some((line_no, 0)),
             });
         }
     }
@@ -3475,9 +3540,11 @@ fn parse_sankey_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::Sankey;
     graph.direction = Direction::LeftRight;
-    let (lines, init_config) = preprocess_input(input)?;
+    let (lines, init_config) = preprocess_input_numbered(input)?;
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         let line = raw_line.trim();
         if line.is_empty() {
             continue;
@@ -3518,7 +3585,7 @@ fn parse_sankey_diagram(input: &str) -> Result<ParseOutput> {
             end_decoration: None,
             style: crate::ir::EdgeStyle::Solid,
             #[cfg(feature = "source-provenance")]
-            source_loc: None,
+            source_loc: Some((line_no, 0)),
         });
     }
 
@@ -3529,9 +3596,11 @@ fn parse_quadrant_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::Quadrant;
     graph.direction = Direction::LeftRight;
-    let (lines, init_config) = preprocess_input(input)?;
+    let (lines, init_config) = preprocess_input_numbered(input)?;
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         let line = raw_line.trim();
         if line.is_empty() {
             continue;
@@ -3589,10 +3658,13 @@ fn parse_quadrant_diagram(input: &str) -> Result<ParseOutput> {
                 Some(label.clone()),
                 Some(crate::ir::NodeShape::Rectangle),
             );
-            graph
-                .quadrant
-                .points
-                .push(crate::ir::QuadrantPoint { label, x, y });
+            graph.quadrant.points.push(crate::ir::QuadrantPoint {
+                label,
+                x,
+                y,
+                #[cfg(feature = "source-provenance")]
+                source_loc: Some((line_no, 0)),
+            });
         }
     }
 
@@ -3617,11 +3689,13 @@ fn parse_quadrant_point_coords(line: &str) -> Option<(String, f32, f32)> {
 fn parse_zenuml_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::ZenUML;
-    let (lines, init_config) = preprocess_input(input)?;
+    let (lines, init_config) = preprocess_input_numbered(input)?;
     let mut order: Vec<String> = Vec::new();
     let labels: HashMap<String, String> = HashMap::new();
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         let line = raw_line.trim();
         if line.is_empty() {
             continue;
@@ -3654,7 +3728,7 @@ fn parse_zenuml_diagram(input: &str) -> Result<ParseOutput> {
                 end_decoration: None,
                 style,
                 #[cfg(feature = "source-provenance")]
-                source_loc: None,
+                source_loc: Some((line_no, 0)),
             });
         }
     }
@@ -3707,10 +3781,12 @@ fn parse_block_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::Block;
     graph.direction = Direction::LeftRight;
-    let (lines, init_config) = preprocess_input(input)?;
+    let (lines, init_config) = preprocess_input_numbered(input)?;
     let mut block = crate::ir::BlockDiagram::default();
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         let line = raw_line.trim();
         if line.is_empty() {
             continue;
@@ -3772,7 +3848,7 @@ fn parse_block_diagram(input: &str) -> Result<ParseOutput> {
                         end_decoration: edge_meta.end_decoration,
                         style: edge_meta.style,
                         #[cfg(feature = "source-provenance")]
-                        source_loc: None,
+                        source_loc: Some((line_no, 0)),
                     });
                 }
             }
@@ -3802,6 +3878,8 @@ fn parse_block_diagram(input: &str) -> Result<ParseOutput> {
                     id: "__space".to_string(),
                     span,
                     is_space: true,
+                    #[cfg(feature = "source-provenance")]
+                    source_loc: Some((line_no, 0)),
                 });
                 continue;
             }
@@ -3810,6 +3888,12 @@ fn parse_block_diagram(input: &str) -> Result<ParseOutput> {
                 continue;
             }
             graph.ensure_node(&id, label, shape);
+            #[cfg(feature = "source-provenance")]
+            if let Some(n) = graph.nodes.get_mut(&id) {
+                if n.source_loc.is_none() {
+                    n.source_loc = Some((line_no, 0));
+                }
+            }
             if !classes.is_empty() {
                 apply_node_classes(&mut graph, &id, &classes);
             }
@@ -3817,6 +3901,8 @@ fn parse_block_diagram(input: &str) -> Result<ParseOutput> {
                 id,
                 span,
                 is_space: false,
+                #[cfg(feature = "source-provenance")]
+                source_loc: Some((line_no, 0)),
             });
         }
     }
@@ -3832,10 +3918,12 @@ fn parse_packet_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::Packet;
     graph.direction = Direction::LeftRight;
-    let (lines, init_config) = preprocess_input(input)?;
+    let (lines, init_config) = preprocess_input_numbered(input)?;
     let mut last_node: Option<String> = None;
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         let line = raw_line.trim();
         if line.is_empty() {
             continue;
@@ -3861,6 +3949,12 @@ fn parse_packet_diagram(input: &str) -> Result<ParseOutput> {
                 Some(node_label),
                 Some(crate::ir::NodeShape::Rectangle),
             );
+            #[cfg(feature = "source-provenance")]
+            if let Some(n) = graph.nodes.get_mut(&node_id) {
+                if n.source_loc.is_none() {
+                    n.source_loc = Some((line_no, 0));
+                }
+            }
             if let Some(prev) = last_node.take() {
                 graph.edges.push(crate::ir::Edge {
                     from: prev,
@@ -3877,7 +3971,7 @@ fn parse_packet_diagram(input: &str) -> Result<ParseOutput> {
                     end_decoration: None,
                     style: crate::ir::EdgeStyle::Solid,
                     #[cfg(feature = "source-provenance")]
-                    source_loc: None,
+                    source_loc: Some((line_no, 0)),
                 });
             }
             last_node = Some(node_id);
@@ -3891,11 +3985,13 @@ fn parse_kanban_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::Kanban;
     graph.direction = Direction::LeftRight;
-    let (lines, init_config) = preprocess_input_keep_indent(input)?;
+    let (lines, init_config) = preprocess_input_keep_indent_numbered(input)?;
     let mut current_section: Option<usize> = None;
     let mut base_indent: Option<usize> = None;
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         let trimmed = raw_line.trim();
         if trimmed.is_empty() {
             continue;
@@ -3939,6 +4035,12 @@ fn parse_kanban_diagram(input: &str) -> Result<ParseOutput> {
             node_label.push_str(&format!("\n{}", meta));
         }
         graph.ensure_node(&id, Some(node_label), Some(crate::ir::NodeShape::Rectangle));
+        #[cfg(feature = "source-provenance")]
+        if let Some(n) = graph.nodes.get_mut(&id) {
+            if n.source_loc.is_none() {
+                n.source_loc = Some((line_no, 0));
+            }
+        }
         if let Some(idx) = current_section
             && let Some(subgraph) = graph.subgraphs.get_mut(idx)
         {
@@ -3953,10 +4055,12 @@ fn parse_architecture_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::Architecture;
     graph.direction = Direction::LeftRight;
-    let (lines, init_config) = preprocess_input(input)?;
+    let (lines, init_config) = preprocess_input_numbered(input)?;
     let mut groups: HashMap<String, usize> = HashMap::new();
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         let line = raw_line.trim();
         if line.is_empty() {
             continue;
@@ -3980,10 +4084,14 @@ fn parse_architecture_diagram(input: &str) -> Result<ParseOutput> {
                     groups.insert(id, graph.subgraphs.len() - 1);
                 } else {
                     graph.ensure_node(&id, Some(label), Some(crate::ir::NodeShape::Rectangle));
-                    if let Some(icon_type) = icon
-                        && let Some(node) = graph.nodes.get_mut(&id)
-                    {
-                        node.icon = Some(icon_type);
+                    if let Some(node) = graph.nodes.get_mut(&id) {
+                        if let Some(icon_type) = icon {
+                            node.icon = Some(icon_type);
+                        }
+                        #[cfg(feature = "source-provenance")]
+                        if node.source_loc.is_none() {
+                            node.source_loc = Some((line_no, 0));
+                        }
                     }
                     if let Some(parent_id) = parent
                         && let Some(idx) = groups.get(&parent_id).copied()
@@ -4013,7 +4121,7 @@ fn parse_architecture_diagram(input: &str) -> Result<ParseOutput> {
                 end_decoration: None,
                 style: crate::ir::EdgeStyle::Solid,
                 #[cfg(feature = "source-provenance")]
-                source_loc: None,
+                source_loc: Some((line_no, 0)),
             });
         }
     }
@@ -4095,10 +4203,12 @@ fn parse_radar_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::Radar;
     graph.direction = Direction::LeftRight;
-    let (lines, init_config) = preprocess_input(input)?;
+    let (lines, init_config) = preprocess_input_numbered(input)?;
     let mut axes: Vec<String> = Vec::new();
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         let line = raw_line.trim();
         if line.is_empty() {
             continue;
@@ -4136,6 +4246,12 @@ fn parse_radar_diagram(input: &str) -> Result<ParseOutput> {
                 Some(label_lines.join("\n")),
                 Some(crate::ir::NodeShape::Circle),
             );
+            #[cfg(feature = "source-provenance")]
+            if let Some(n) = graph.nodes.get_mut(&node_id) {
+                if n.source_loc.is_none() {
+                    n.source_loc = Some((line_no, 0));
+                }
+            }
         }
     }
 
@@ -4162,11 +4278,13 @@ fn parse_treemap_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::Treemap;
     graph.direction = Direction::LeftRight;
-    let (lines, init_config) = preprocess_input_keep_indent(input)?;
+    let (lines, init_config) = preprocess_input_keep_indent_numbered(input)?;
     let mut stack: Vec<String> = Vec::new();
     let mut base_indent: Option<usize> = None;
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         let trimmed = raw_line.trim();
         if trimmed.is_empty() {
             continue;
@@ -4198,10 +4316,14 @@ fn parse_treemap_diagram(input: &str) -> Result<ParseOutput> {
             Some(node_label),
             Some(crate::ir::NodeShape::Rectangle),
         );
-        if let Some(parsed) = numeric_value
-            && let Some(node) = graph.nodes.get_mut(&node_id)
-        {
-            node.value = Some(parsed);
+        if let Some(node) = graph.nodes.get_mut(&node_id) {
+            if let Some(parsed) = numeric_value {
+                node.value = Some(parsed);
+            }
+            #[cfg(feature = "source-provenance")]
+            if node.source_loc.is_none() {
+                node.source_loc = Some((line_no, 0));
+            }
         }
 
         if level > 0 {
@@ -4261,9 +4383,11 @@ fn parse_xy_chart_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::XYChart;
     graph.direction = Direction::LeftRight;
-    let (lines, init_config) = preprocess_input(input)?;
+    let (lines, init_config) = preprocess_input_numbered(input)?;
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         let line = raw_line.trim();
         if line.is_empty() {
             continue;
@@ -4329,6 +4453,8 @@ fn parse_xy_chart_diagram(input: &str) -> Result<ParseOutput> {
                 kind: series_kind,
                 label,
                 values,
+                #[cfg(feature = "source-provenance")]
+                source_loc: Some((line_no, 0)),
             });
         }
     }
@@ -4756,6 +4882,8 @@ fn parse_state_diagram(input: &str) -> Result<ParseOutput> {
                     position,
                     target: target.clone(),
                     label,
+                    #[cfg(feature = "source-provenance")]
+                    source_loc: Some((line_no, 0)),
                 });
                 add_node_to_subgraphs(&mut graph, &subgraph_stack, &target);
                 record_region_node(&mut composite_stack, &target);

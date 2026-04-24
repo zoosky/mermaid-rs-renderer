@@ -2,6 +2,46 @@
 
 ## [Unreleased]
 
+### Added: `source-provenance` now covers all 23 diagram types (Phase 2: f160q)
+
+Phase 2 extends the `source-provenance` cargo feature introduced in
+Phase 1 to the remaining 20 diagram types: **class, ER, pie, gantt,
+gitgraph, c4, mindmap, timeline, xychart, block, quadrant, sankey,
+treemap, journey, kanban, radar, requirement, architecture, zenuml,
+packet** (plus a **state notes** retrofit that Phase 1 scoped but
+did not wire up). Every addressable IR element now carries a
+`source_loc` when the feature is on, and `render_svg` emits
+`data-source-line` on the outermost SVG node for each rendered
+element.
+
+- No new cargo features introduced; every parser now uses the same
+  `preprocess_input_numbered` / `preprocess_input_keep_indent_numbered`
+  helpers and the same `first-mention-wins` + `opening-line-wins`
+  conventions established in Phase 1.
+- Twelve new cfg-gated `source_loc: Option<(u32, u32)>` IR fields
+  (`PieSlice`, `QuadrantPoint`, `GanttTask`, `GitGraphCommit`,
+  `C4Shape`, `C4Rel`, `C4Boundary`, `StateNote`, `MindmapNode`,
+  `XYSeries`, `TimelineEvent`, `BlockNode`).
+- Matching cfg-gated `source_loc` added to `PieSliceLayout`,
+  `QuadrantPointLayout`, `GanttTaskLayout`, `GitGraphCommitLayout`,
+  `C4ShapeLayout`, `C4BoundaryLayout`, `C4RelLayout`,
+  `StateNoteLayout`, `XYChartBarLayout`, `XYChartLineLayout`,
+  `TimelineEventLayout`, `JourneyTaskLayout`, `SankeyLinkLayout`.
+- 18 new per-type test fixtures under `tests/provenance_*.rs`;
+  combined with Phase 1's three files, the suite asserts every
+  addressable IR kind across every diagram type carries
+  `data-source-line` when the feature is enabled.
+- With `--no-default-features --features cli,png`, SVG output for
+  **all 23 diagram types** remains byte-identical to the pre-patch
+  baseline. Existing tests pass with the feature enabled and
+  disabled.
+- Internal cleanup: the non-numbered `preprocess_input` and
+  `preprocess_input_keep_indent` helpers had no remaining callers
+  after Phase 2 and were removed. Every parser now takes the numbered
+  variant; when `source-provenance` is off the loop body opens with
+  `#[cfg(not(feature = "source-provenance"))] let _ = line_no;` so
+  the resulting code is byte-identical for disabled builds.
+
 ### Added: `source-provenance` cargo feature (Phase 1: flowchart, sequence, state)
 
 - New default-on cargo feature `source-provenance` that threads the
