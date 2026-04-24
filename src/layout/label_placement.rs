@@ -19,6 +19,23 @@ const FLOWCHART_LABEL_SOFT_GAP: f32 = 6.0;
 type Rect = (f32, f32, f32, f32);
 type EdgeObstacle = (usize, Rect);
 
+#[derive(Clone, Copy, Debug)]
+struct CenterLabelOverlapScore {
+    count: usize,
+    total: f32,
+    max: f32,
+}
+
+impl CenterLabelOverlapScore {
+    fn improved_by(self, other: Self) -> bool {
+        self.count < other.count
+            || (self.count == other.count && self.max + 0.1 < other.max)
+            || (self.count == other.count
+                && (self.max - other.max).abs() <= 0.1
+                && self.total + 0.1 < other.total)
+    }
+}
+
 #[derive(Clone)]
 struct FlowchartCenterLabelEntry {
     edge_idx: usize,
@@ -661,7 +678,60 @@ fn resolve_center_labels(
     );
     if kind == DiagramKind::Flowchart {
         nudge_flowchart_labels_clear_of_own_paths(edges, bounds);
+        let before_score = center_label_overlap_score(edges, label_pad_x, label_pad_y);
+        let mut candidate_edges = edges.to_vec();
+        deoverlap_flowchart_center_labels(
+            &mut candidate_edges,
+            nodes,
+            subgraphs,
+            bounds,
+            theme,
+            label_pad_x,
+            label_pad_y,
+            &fixed_center_indices,
+        );
+        let after_score = center_label_overlap_score(&candidate_edges, label_pad_x, label_pad_y);
+        if after_score.improved_by(before_score) {
+            edges.clone_from_slice(&candidate_edges);
+        }
     }
+}
+
+fn center_label_overlap_score(
+    edges: &[EdgeLayout],
+    label_pad_x: f32,
+    label_pad_y: f32,
+) -> CenterLabelOverlapScore {
+    let rects: Vec<Rect> = edges
+        .iter()
+        .filter_map(|edge| {
+            let label = edge.label.as_ref()?;
+            let center = edge.label_anchor?;
+            Some(flowchart_center_label_rect(
+                center,
+                label.width,
+                label.height,
+                label_pad_x,
+                label_pad_y,
+            ))
+        })
+        .collect();
+
+    let mut count = 0usize;
+    let mut total = 0.0f32;
+    let mut max = 0.0f32;
+    for i in 0..rects.len() {
+        for j in (i + 1)..rects.len() {
+            let overlap = overlap_area(&rects[i], &rects[j]);
+            if overlap > LABEL_OVERLAP_WIDE_THRESHOLD {
+                count += 1;
+                total += overlap;
+                max = max.max(overlap);
+            }
+        }
+    }
+
+    CenterLabelOverlapScore { count, total, max }
 }
 
 fn label_core_rect(center: (f32, f32), label: &TextBlock) -> Rect {
