@@ -81,6 +81,8 @@ pub(in crate::layout) fn build_edge_layouts(
             label_anchor: label_anchors[idx],
             start_label_anchor: None,
             end_label_anchor: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: edge.source_loc,
         });
     }
     edges
@@ -113,6 +115,8 @@ mod tests {
             start_decoration: None,
             end_decoration: None,
             style: EdgeStyle::Solid,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
 
         let config = LayoutConfig::default();

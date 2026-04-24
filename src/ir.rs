@@ -70,6 +70,11 @@ pub struct SequenceActivation {
     pub participant: String,
     pub index: usize,
     pub kind: SequenceActivationKind,
+    /// 1-based `(line, col)` in the original source where this
+    /// activation was declared. `col == 0` means "not tracked". Field
+    /// only exists when the `source-provenance` cargo feature is on.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -78,12 +83,18 @@ pub struct SequenceNote {
     pub participants: Vec<String>,
     pub label: String,
     pub index: usize,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
 pub struct PieSlice {
     pub label: String,
     pub value: f32,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -91,6 +102,9 @@ pub struct QuadrantPoint {
     pub label: String,
     pub x: f32,
     pub y: f32,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,6 +135,9 @@ pub struct GanttTask {
     pub after: Option<String>,
     pub section: Option<String>,
     pub status: Option<GanttStatus>,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -143,6 +160,9 @@ pub struct GitGraphCommit {
     pub parents: Vec<String>,
     pub branch: String,
     pub custom_id: bool,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -225,6 +245,9 @@ pub struct C4Shape {
     pub bg_color: Option<String>,
     pub border_color: Option<String>,
     pub font_color: Option<String>,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -240,6 +263,10 @@ pub struct C4Boundary {
     pub bg_color: Option<String>,
     pub border_color: Option<String>,
     pub font_color: Option<String>,
+    /// Line of the opening boundary directive, not the closing `}`.
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -268,6 +295,9 @@ pub struct C4Rel {
     pub offset_y: f32,
     pub line_color: Option<String>,
     pub text_color: Option<String>,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -292,6 +322,9 @@ pub struct StateNote {
     pub position: StateNotePosition,
     pub target: String,
     pub label: String,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -307,6 +340,11 @@ pub struct SequenceFrame {
     pub sections: Vec<SequenceFrameSection>,
     pub start_idx: usize,
     pub end_idx: usize,
+    /// Line of the opening directive (`alt`, `loop`, `par`, `opt`,
+    /// ...), not the closing `end`. See
+    /// `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 impl Direction {
@@ -329,6 +367,12 @@ pub struct Node {
     pub shape: NodeShape,
     pub value: Option<f32>,
     pub icon: Option<String>,
+    /// 1-based `(line, col)` in the original source where this node
+    /// was first mentioned. `col == 0` means "not tracked". Field only
+    /// exists when the `source-provenance` cargo feature is on. First
+    /// mention wins if the same id appears on multiple lines.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -336,6 +380,10 @@ pub struct NodeLink {
     pub url: String,
     pub title: Option<String>,
     pub target: Option<String>,
+    /// Line of the `click` directive that declared the link. See
+    /// `Node::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -353,6 +401,14 @@ pub struct Edge {
     pub start_decoration: Option<EdgeDecoration>,
     pub end_decoration: Option<EdgeDecoration>,
     pub style: EdgeStyle,
+    /// 1-based `(line, col)` in the original source of the statement
+    /// that declared this edge. `col == 0` means "not tracked". Field
+    /// only exists when the `source-provenance` cargo feature is on.
+    /// Unlike `Node::source_loc`, edges are not deduplicated -- every
+    /// parser `edges.push(...)` creates a fresh record that carries
+    /// the line it was declared on.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -388,6 +444,10 @@ pub struct Subgraph {
     pub nodes: Vec<String>,
     pub direction: Option<Direction>,
     pub icon: Option<String>,
+    /// Line of the opening `subgraph` directive, not the closing
+    /// `end`. See `Node::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -473,6 +533,9 @@ pub struct MindmapNode {
     pub icon: Option<String>,
     pub class: Option<String>,
     pub children: Vec<String>,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -492,6 +555,10 @@ pub struct XYSeries {
     pub kind: XYSeriesKind,
     pub label: Option<String>,
     pub values: Vec<f32>,
+    /// Line of the `bar` / `line` directive. See
+    /// `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -510,6 +577,9 @@ pub struct TimelineEvent {
     pub time: String,
     pub events: Vec<String>,
     pub section: Option<String>,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -530,6 +600,9 @@ pub struct BlockNode {
     pub id: String,
     pub span: usize,
     pub is_space: bool,
+    /// See `SequenceActivation::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 impl Graph {
@@ -582,6 +655,8 @@ impl Graph {
             shape: NodeShape::Rectangle,
             value: None,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
         if is_new {
             let order = self.node_order.len();

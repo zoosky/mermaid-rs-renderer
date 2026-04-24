@@ -380,6 +380,8 @@ mod tests {
             anchor_subgraph: None,
             hidden: false,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         }
     }
 
@@ -398,6 +400,8 @@ mod tests {
             start_decoration: None,
             end_decoration: None,
             style: EdgeStyle::Solid,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         }
     }
 

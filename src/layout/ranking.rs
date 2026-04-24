@@ -561,6 +561,8 @@ mod tests {
             start_decoration: None,
             end_decoration: None,
             style: crate::ir::EdgeStyle::Solid,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         }
     }
 

@@ -98,6 +98,8 @@ pub(super) fn compute_xychart_layout(
                         height: bar_height,
                         value,
                         color: color.clone(),
+                        #[cfg(feature = "source-provenance")]
+                        source_loc: series.source_loc,
                     });
                 }
                 bar_series_idx += 1;
@@ -114,7 +116,12 @@ pub(super) fn compute_xychart_layout(
                     })
                     .collect();
 
-                lines.push(XYChartLineLayout { points, color });
+                lines.push(XYChartLineLayout {
+                    points,
+                    color,
+                    #[cfg(feature = "source-provenance")]
+                    source_loc: series.source_loc,
+                });
             }
         }
     }

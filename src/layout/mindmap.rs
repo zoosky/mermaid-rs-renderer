@@ -274,6 +274,12 @@ pub(super) fn compute_mindmap_layout(
             style.stroke_width = Some(0.0);
         }
 
+        #[cfg(feature = "source-provenance")]
+        let src = graph
+            .nodes
+            .get(&node.id)
+            .and_then(|n| n.source_loc)
+            .or(node.source_loc);
         nodes.insert(
             node.id.clone(),
             NodeLayout {
@@ -289,6 +295,8 @@ pub(super) fn compute_mindmap_layout(
                 anchor_subgraph: None,
                 hidden: false,
                 icon: None,
+                #[cfg(feature = "source-provenance")]
+                source_loc: src,
             },
         );
 
@@ -424,6 +432,8 @@ pub(super) fn compute_mindmap_layout(
             end_decoration: None,
             style: crate::ir::EdgeStyle::Solid,
             override_style,
+            #[cfg(feature = "source-provenance")]
+            source_loc: edge.source_loc,
         });
     }
 

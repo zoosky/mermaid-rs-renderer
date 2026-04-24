@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
+#[cfg(feature = "embedded-font")]
+use std::sync::Arc;
 use std::sync::Mutex;
 use ttf_parser::{Face, GlyphId};
 
@@ -33,11 +35,61 @@ struct TextMeasurer {
     cache: HashMap<String, Option<FontFace>>,
 }
 
+/// Inter Regular, TrueType, SIL OFL 1.1. Bundled when the
+/// `embedded-font` feature is enabled so the loader does not need
+/// to scan the host's font directories.
+#[cfg(feature = "embedded-font")]
+const EMBEDDED_REGULAR: &[u8] =
+    include_bytes!("../assets/fonts/Inter-Regular.ttf");
+
+/// Inter Bold, TrueType, SIL OFL 1.1. See [`EMBEDDED_REGULAR`].
+#[cfg(feature = "embedded-font")]
+const EMBEDDED_BOLD: &[u8] = include_bytes!("../assets/fonts/Inter-Bold.ttf");
+
 impl TextMeasurer {
     fn new() -> Self {
-        let db = Database::new();
+        // `mut` is only needed when the `embedded-font` feature
+        // populates the database; suppress the unused-mut warning
+        // in the disabled configuration.
+        #[cfg_attr(not(feature = "embedded-font"), allow(unused_mut))]
+        let mut db = Database::new();
+        // When the `embedded-font` feature is enabled, pre-populate
+        // the font database with a bundled sans-serif (Inter) and
+        // mark system-font loading as already complete. This avoids
+        // `fontdb`'s filesystem scan entirely on first render, which
+        // is surprising on servers and unsupported in sandboxed
+        // environments that deny access outside the working dir.
+        //
+        // `Source::Binary(Arc<&'static [u8]>)` references the bytes
+        // already embedded in the binary's rodata section, so no
+        // ~822 KB heap allocation is paid at startup.
+        //
+        // `fontdb::Database::new()` hardcodes generic-family
+        // fallback names ("Arial" for sans-serif, "Times New
+        // Roman" for serif, etc.) which are NOT registered in the
+        // embedded DB. Re-alias every generic family to "Inter"
+        // so CSS like `font-family: "foo", sans-serif` resolves to
+        // the bundled face when the named families are absent. Without
+        // these calls, queries that fall through to `sans-serif`
+        // would silently return `None` and callers would regress
+        // to character-count heuristics.
+        #[cfg(feature = "embedded-font")]
+        {
+            db.load_font_source(fontdb::Source::Binary(Arc::new(EMBEDDED_REGULAR)));
+            db.load_font_source(fontdb::Source::Binary(Arc::new(EMBEDDED_BOLD)));
+            db.set_sans_serif_family("Inter");
+            db.set_serif_family("Inter");
+            db.set_monospace_family("Inter");
+            db.set_cursive_family("Inter");
+            db.set_fantasy_family("Inter");
+        }
         Self {
             db,
+            // Suppress the lazy `load_system_fonts()` call in
+            // `load_face` when we have an embedded font available.
+            #[cfg(feature = "embedded-font")]
+            loaded_system_fonts: true,
+            #[cfg(not(feature = "embedded-font"))]
             loaded_system_fonts: false,
             cache: HashMap::new(),
         }

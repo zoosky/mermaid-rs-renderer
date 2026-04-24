@@ -221,6 +221,8 @@ pub(super) fn compute_sequence_layout(
                 anchor_subgraph: None,
                 hidden: false,
                 icon: None,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             },
         );
     }
@@ -312,6 +314,8 @@ pub(super) fn compute_sequence_layout(
                     position: note.position,
                     participants: note.participants.clone(),
                     index: note.index,
+                    #[cfg(feature = "source-provenance")]
+                    source_loc: note.source_loc,
                 });
                 message_cursor += height;
             }
@@ -373,6 +377,8 @@ pub(super) fn compute_sequence_layout(
             end_decoration: edge.end_decoration,
             style: edge.style,
             override_style,
+            #[cfg(feature = "source-provenance")]
+            source_loc: edge.source_loc,
         });
     }
 
@@ -531,6 +537,8 @@ pub(super) fn compute_sequence_layout(
                 label,
                 section_labels,
                 dividers,
+                #[cfg(feature = "source-provenance")]
+                source_loc: frame.source_loc,
             });
         }
     }
@@ -611,6 +619,15 @@ pub(super) fn compute_sequence_layout(
         .unwrap_or(lifeline_start + base_spacing * 0.5)
         + base_spacing * 0.6;
     let mut sequence_activations = Vec::new();
+    // Stack entries carry (start_y, depth, source_loc) so activations that
+    // are never explicitly deactivated still carry their opening-line
+    // provenance when the leftover loop below synthesises their layout.
+    // The source_loc tuple slot is omitted entirely when the
+    // `source-provenance` feature is off (see the cfg'd variant below).
+    #[cfg(feature = "source-provenance")]
+    let mut activation_stacks: HashMap<String, Vec<(f32, usize, Option<(u32, u32)>)>> =
+        HashMap::new();
+    #[cfg(not(feature = "source-provenance"))]
     let mut activation_stacks: HashMap<String, Vec<(f32, usize)>> = HashMap::new();
     let mut events = graph
         .sequence_activations
@@ -635,11 +652,33 @@ pub(super) fn compute_sequence_layout(
         match event.kind {
             crate::ir::SequenceActivationKind::Activate => {
                 let depth = stack.len();
+                #[cfg(feature = "source-provenance")]
+                stack.push((y, depth, event.source_loc));
+                #[cfg(not(feature = "source-provenance"))]
                 stack.push((y, depth));
             }
             crate::ir::SequenceActivationKind::Deactivate => {
-                if let Some((start_y, depth)) = stack.pop()
-                    && let Some(node) = nodes.get(&event.participant)
+                // The activation bar spans from activate to deactivate.
+                // Attribute it to the **activate** line (stored in the
+                // stack), since that's the opening directive per the
+                // source-provenance convention for multi-line constructs.
+                #[cfg(feature = "source-provenance")]
+                let popped = stack
+                    .pop()
+                    .map(|(y0, d, loc)| (y0, d, loc));
+                #[cfg(not(feature = "source-provenance"))]
+                let popped = stack.pop();
+                #[cfg(feature = "source-provenance")]
+                let (start_y, depth, activation_loc) = match popped {
+                    Some(v) => v,
+                    None => continue,
+                };
+                #[cfg(not(feature = "source-provenance"))]
+                let (start_y, depth) = match popped {
+                    Some(v) => v,
+                    None => continue,
+                };
+                if let Some(node) = nodes.get(&event.participant)
                 {
                     let base_x = sequence_lane_center(node) - activation_width / 2.0;
                     let x = base_x + depth as f32 * activation_offset;
@@ -658,13 +697,19 @@ pub(super) fn compute_sequence_layout(
                         height,
                         participant: event.participant.clone(),
                         depth,
+                        #[cfg(feature = "source-provenance")]
+                        source_loc: activation_loc,
                     });
                 }
             }
         }
     }
     for (participant, stack) in activation_stacks {
-        for (start_y, depth) in stack {
+        for entry in stack {
+            #[cfg(feature = "source-provenance")]
+            let (start_y, depth, loc) = entry;
+            #[cfg(not(feature = "source-provenance"))]
+            let (start_y, depth) = entry;
             if let Some(node) = nodes.get(&participant) {
                 let base_x = sequence_lane_center(node) - activation_width / 2.0;
                 let x = base_x + depth as f32 * activation_offset;
@@ -683,6 +728,8 @@ pub(super) fn compute_sequence_layout(
                     height,
                     participant: participant.clone(),
                     depth,
+                    #[cfg(feature = "source-provenance")]
+                    source_loc: loc,
                 });
             }
         }

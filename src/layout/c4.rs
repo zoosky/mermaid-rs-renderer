@@ -113,6 +113,8 @@ pub(super) fn compute_c4_layout(graph: &Graph, config: &LayoutConfig) -> Layout 
             offset_y: rel.offset_y,
             line_color: rel.line_color.clone(),
             text_color: rel.text_color.clone(),
+            #[cfg(feature = "source-provenance")]
+            source_loc: rel.source_loc,
         });
     }
     resolve_c4_rel_label_offsets(&mut rels_out, &shapes_out, conf);
@@ -138,6 +140,8 @@ pub(super) fn compute_c4_layout(graph: &Graph, config: &LayoutConfig) -> Layout 
                 anchor_subgraph: None,
                 hidden: false,
                 icon: None,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             },
         );
     }
@@ -162,6 +166,8 @@ pub(super) fn compute_c4_layout(graph: &Graph, config: &LayoutConfig) -> Layout 
             end_decoration: None,
             style: crate::ir::EdgeStyle::Solid,
             override_style: crate::ir::EdgeStyleOverride::default(),
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
     }
 
@@ -444,6 +450,8 @@ fn layout_c4_boundaries(
                 y: current_bounds.data.starty,
                 width: current_bounds.data.stopx - current_bounds.data.startx,
                 height: current_bounds.data.stopy - current_bounds.data.starty,
+                #[cfg(feature = "source-provenance")]
+                source_loc: boundary.source_loc,
             };
             boundaries_out.push(boundary_layout);
         }
@@ -586,6 +594,8 @@ fn layout_c4_shapes(
             type_or_techn: type_or_techn_layout,
             descr: descr_layout,
             image_y,
+            #[cfg(feature = "source-provenance")]
+            source_loc: shape.source_loc,
         });
     }
     bounds.bump_last_margin(conf.c4_shape_margin);

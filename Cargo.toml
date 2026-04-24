@@ -3,7 +3,7 @@ name = "mermaid-rs-renderer"
 version = "0.2.2"
 edition = "2024"
 description = "Fast Mermaid diagram renderer in pure Rust - 23 diagram types, 100-1400x faster than mermaid-cli"
-license = "MIT"
+license = "MIT AND OFL-1.1"
 readme = "README.md"
 repository = "https://github.com/1jehuang/mermaid-rs-renderer"
 homepage = "https://github.com/1jehuang/mermaid-rs-renderer"
@@ -22,11 +22,26 @@ exclude = [
 ]
 
 [features]
-default = ["cli", "png"]
+default = ["cli", "png", "source-provenance"]
 # CLI support (adds clap dependency)
 cli = ["dep:clap"]
 # PNG output support (adds resvg/usvg dependencies)
 png = ["dep:resvg", "dep:usvg"]
+# Ship an in-memory permissively-licensed font (Inter, SIL OFL 1.1)
+# so the font loader skips fontdb's filesystem scan on first render.
+# Recommended for servers, sandboxed environments, and containers where
+# the host's fonts directory is not guaranteed to contain Inter (or any
+# sans-serif the caller requests). Adds ~822 KB to the binary.
+embedded-font = []
+# Source-line provenance: thread the 1-based line of the original
+# Mermaid source through the parser -> IR -> layout pipeline, and
+# emit it on the rendered SVG as `data-source-line="N"`. Enables
+# "click diagram -> jump to source line" ergonomics for agents,
+# dev-mode overlays, and LLM correction loops. On by default; disable
+# for the smallest possible SVG output. Phase 1 coverage: flowchart,
+# sequence, state. Remaining diagram types emit no provenance until
+# a follow-up PR lands.
+source-provenance = []
 
 [dependencies]
 anyhow = "1.0"
@@ -47,6 +62,10 @@ criterion = "0.8"
 
 [[bench]]
 name = "renderer"
+harness = false
+
+[[bench]]
+name = "font_startup"
 harness = false
 
 [[bin]]

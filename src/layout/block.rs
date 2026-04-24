@@ -168,6 +168,8 @@ pub(super) fn compute_block_layout(graph: &Graph, theme: &Theme, config: &Layout
             end_decoration: edge.end_decoration,
             style: edge.style,
             override_style,
+            #[cfg(feature = "source-provenance")]
+            source_loc: edge.source_loc,
         });
     }
 
@@ -295,6 +297,8 @@ fn infer_block_grid(graph: &Graph) -> (Vec<crate::ir::BlockNode>, usize) {
                 id: id.clone(),
                 span: 1,
                 is_space: false,
+                #[cfg(feature = "source-provenance")]
+                source_loc: graph.nodes.get(id).and_then(|n| n.source_loc),
             });
         }
         let missing = columns.saturating_sub(row_ids.len());
@@ -303,6 +307,8 @@ fn infer_block_grid(graph: &Graph) -> (Vec<crate::ir::BlockNode>, usize) {
                 id: "__space".to_string(),
                 span: 1,
                 is_space: true,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             });
         }
     }

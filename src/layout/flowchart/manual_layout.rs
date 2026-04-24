@@ -78,6 +78,8 @@ fn build_ordering_edges(
                 start_decoration: None,
                 end_decoration: None,
                 style: crate::ir::EdgeStyle::Solid,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             });
             prev = dummy_id;
         }
@@ -95,6 +97,8 @@ fn build_ordering_edges(
             start_decoration: None,
             end_decoration: None,
             style: crate::ir::EdgeStyle::Solid,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
     }
 
@@ -317,6 +321,8 @@ pub(in crate::layout) fn assign_positions_manual(
                     anchor_subgraph: None,
                     hidden: true,
                     icon: None,
+                    #[cfg(feature = "source-provenance")]
+                    source_loc: None,
                 },
             );
 
@@ -547,6 +553,8 @@ mod tests {
             anchor_subgraph: None,
             hidden: false,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         }
     }
 
@@ -557,6 +565,8 @@ mod tests {
             shape: crate::ir::NodeShape::Rectangle,
             value: None,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         }
     }
 
@@ -575,6 +585,8 @@ mod tests {
             start_decoration: None,
             end_decoration: None,
             style: crate::ir::EdgeStyle::Solid,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         }
     }
 

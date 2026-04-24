@@ -70,6 +70,8 @@ pub(super) fn compute_journey_layout(
         actors: Vec<String>,
         section_idx: usize,
         order_idx: usize,
+        #[cfg(feature = "source-provenance")]
+        source_loc: Option<(u32, u32)>,
     }
 
     let mut tasks_data: Vec<TaskData> = Vec::new();
@@ -93,6 +95,8 @@ pub(super) fn compute_journey_layout(
                     actors,
                     section_idx,
                     order_idx,
+                    #[cfg(feature = "source-provenance")]
+                    source_loc: node.source_loc,
                 });
                 order_idx += 1;
             }
@@ -223,6 +227,8 @@ pub(super) fn compute_journey_layout(
             actors: task.actors.clone(),
             actor_y,
             section_idx: task.section_idx,
+            #[cfg(feature = "source-provenance")]
+            source_loc: task.source_loc,
         });
     }
 
@@ -290,6 +296,8 @@ pub(super) fn compute_journey_layout(
             anchor_subgraph: None,
             hidden: false,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         },
     );
 

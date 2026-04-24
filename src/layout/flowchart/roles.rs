@@ -182,6 +182,8 @@ mod tests {
                 start_decoration: None,
                 end_decoration: None,
                 style: EdgeStyle::Solid,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             },
             Edge {
                 from: "B".to_string(),
@@ -197,6 +199,8 @@ mod tests {
                 start_decoration: None,
                 end_decoration: None,
                 style: EdgeStyle::Solid,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             },
             Edge {
                 from: "C".to_string(),
@@ -212,6 +216,8 @@ mod tests {
                 start_decoration: None,
                 end_decoration: None,
                 style: EdgeStyle::Solid,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             },
             Edge {
                 from: "D".to_string(),
@@ -227,6 +233,8 @@ mod tests {
                 start_decoration: None,
                 end_decoration: None,
                 style: EdgeStyle::Solid,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             },
             Edge {
                 from: "D".to_string(),
@@ -242,6 +250,8 @@ mod tests {
                 start_decoration: None,
                 end_decoration: None,
                 style: EdgeStyle::Solid,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             },
         ];
         graph.subgraphs.push(Subgraph {
@@ -250,6 +260,8 @@ mod tests {
             nodes: vec!["B".to_string(), "C".to_string()],
             direction: None,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
         graph
     }

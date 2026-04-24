@@ -46,6 +46,8 @@ pub(super) fn compute_timeline_layout(
                 width: event_width,
                 height: event_height,
                 circle_y: line_y,
+                #[cfg(feature = "source-provenance")]
+                source_loc: event.source_loc,
             }
         })
         .collect();
@@ -90,6 +92,8 @@ pub(super) fn compute_timeline_layout(
             anchor_subgraph: None,
             hidden: false,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         },
     );
 

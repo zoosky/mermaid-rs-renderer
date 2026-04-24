@@ -829,6 +829,8 @@ fn build_node_layout(
         anchor_subgraph: None,
         hidden: false,
         icon: None,
+        #[cfg(feature = "source-provenance")]
+        source_loc: node.source_loc,
     }
 }
 
@@ -1130,6 +1132,8 @@ mod tests {
             start_decoration: None,
             end_decoration: None,
             style: crate::ir::EdgeStyle::Solid,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
         let layout = compute_layout(&graph, &Theme::modern(), &LayoutConfig::default());
         let a = layout.nodes.get("A").unwrap();
@@ -1714,6 +1718,8 @@ flowchart LR
                     anchor_subgraph: None,
                     hidden: false,
                     icon: None,
+                    #[cfg(feature = "source-provenance")]
+                    source_loc: None,
                 },
             ),
             (
@@ -1735,6 +1741,8 @@ flowchart LR
                     anchor_subgraph: None,
                     hidden: false,
                     icon: None,
+                    #[cfg(feature = "source-provenance")]
+                    source_loc: None,
                 },
             ),
         ]);
@@ -1776,6 +1784,8 @@ flowchart LR
             start_decoration: None,
             end_decoration: None,
             style: crate::ir::EdgeStyle::Solid,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
 
         graph.edge_style_default = Some(crate::ir::EdgeStyleOverride {
@@ -1889,6 +1899,8 @@ flowchart LR
             anchor_subgraph: None,
             hidden: false,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         }
     }
 
@@ -1907,6 +1919,8 @@ flowchart LR
             start_decoration: None,
             end_decoration: None,
             style,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         }
     }
 

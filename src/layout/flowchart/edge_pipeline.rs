@@ -832,6 +832,8 @@ mod tests {
             anchor_subgraph: None,
             hidden: false,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         }
     }
 

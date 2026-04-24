@@ -299,6 +299,24 @@ Supported:
 
 **Layout:** subgraphs with direction, nested subgraphs, automatic spacing
 
+**Cargo features:**
+
+- `cli` *(default)* -- command-line binary support (adds `clap`).
+- `png` *(default)* -- PNG output via `resvg`/`usvg`.
+- `embedded-font` -- ship Inter Regular + Bold (SIL OFL 1.1) as
+  `include_bytes!` constants so the text-metric loader can skip
+  `fontdb`'s filesystem scan. Recommended for servers, sandboxes,
+  and containers where you want deterministic first-render
+  latency. Adds ~822 KB to the binary.
+
+Minimal library embedding (e.g. for a CMS or a doc generator) that
+wants fast cold start and no system-font dependency:
+
+```toml
+[dependencies]
+mermaid-rs-renderer = { version = "0.2", default-features = false, features = ["embedded-font"] }
+```
+
 ## Configuration
 
 ```bash
@@ -486,4 +504,11 @@ Release process: see `docs/release.md`.
 
 ## License
 
-MIT
+The crate source is MIT; see [`LICENSE`](LICENSE).
+
+When the `embedded-font` cargo feature is enabled, the binary additionally
+links [Inter](https://rsms.me/inter/) Regular and Bold (TrueType) bundled
+under [`assets/fonts/`](assets/fonts/). Inter is distributed under the
+[SIL Open Font License 1.1](assets/fonts/OFL.txt). The effective SPDX
+license expression for an `embedded-font` build is therefore
+`MIT AND OFL-1.1`.

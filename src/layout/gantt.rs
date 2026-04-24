@@ -199,6 +199,7 @@ pub(super) fn compute_gantt_layout(graph: &Graph, theme: &Theme, config: &Layout
         f32,
         Option<crate::ir::GanttStatus>,
         Option<String>,
+        Option<(u32, u32)>,
     )> = Vec::with_capacity(graph.gantt_tasks.len());
     for task in &graph.gantt_tasks {
         let duration = task
@@ -221,12 +222,17 @@ pub(super) fn compute_gantt_layout(graph: &Graph, theme: &Theme, config: &Layout
         cursor = cursor.max(end + 0.5);
         time_start = time_start.min(start);
         time_end = time_end.max(end);
+        #[cfg(feature = "source-provenance")]
+        let loc = task.source_loc;
+        #[cfg(not(feature = "source-provenance"))]
+        let loc: Option<(u32, u32)> = None;
         computed.push((
             task.label.clone(),
             start,
             duration,
             task.status,
             task.section.clone(),
+            loc,
         ));
     }
     if !time_start.is_finite() || !time_end.is_finite() {
@@ -270,7 +276,9 @@ pub(super) fn compute_gantt_layout(graph: &Graph, theme: &Theme, config: &Layout
     // Each lane is y_position, end_time
     let mut lanes: Vec<(f32, f32)> = Vec::new();
 
-    for (idx, (label, start, duration, status, section)) in computed.iter().enumerate() {
+    for (idx, (label, start, duration, status, section, loc)) in computed.iter().enumerate() {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = loc;
         if section != &current_section {
             if let Some(sec) = section.as_ref() {
                 if let Some(prev_idx) = current_section_idx {
@@ -344,6 +352,8 @@ pub(super) fn compute_gantt_layout(graph: &Graph, theme: &Theme, config: &Layout
             start: *start,
             duration: *duration,
             status: *status,
+            #[cfg(feature = "source-provenance")]
+            source_loc: *loc,
         });
     }
     if let Some(prev_idx) = current_section_idx {
@@ -444,6 +454,8 @@ mod tests {
             after: None,
             section: Some(section.to_string()),
             status: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         }
     }
 
@@ -456,6 +468,8 @@ mod tests {
             after: None,
             section: Some(section.to_string()),
             status: Some(GanttStatus::Milestone),
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         }
     }
 

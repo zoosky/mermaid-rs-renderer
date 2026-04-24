@@ -4142,6 +4142,8 @@ mod tests {
             start_decoration: None,
             style: crate::ir::EdgeStyle::Solid,
             override_style: crate::ir::EdgeStyleOverride::default(),
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         };
         let (x, y, _dx, _dy) = edge_label_anchor(&edge);
         assert!(
@@ -4173,6 +4175,8 @@ mod tests {
             start_decoration: None,
             style: crate::ir::EdgeStyle::Solid,
             override_style: crate::ir::EdgeStyleOverride::default(),
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         };
         let (_x, _y, dx, dy) =
             edge_label_anchor_from_point(&edge, (100.0, 60.0)).expect("anchor should resolve");
@@ -4213,6 +4217,8 @@ mod tests {
             end_decoration: None,
             style: crate::ir::EdgeStyle::Solid,
             override_style: crate::ir::EdgeStyleOverride::default(),
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         };
         let occupied: Vec<Rect> = Vec::new();
         let occupied_grid = ObstacleGrid::new(48.0, &occupied);
@@ -4264,6 +4270,8 @@ mod tests {
             start_decoration: None,
             style: crate::ir::EdgeStyle::Solid,
             override_style: crate::ir::EdgeStyleOverride::default(),
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         };
         let mut edges = vec![mk_edge("G"), mk_edge("G"), mk_edge("G"), mk_edge("X")];
         edges[3].label = None;
