@@ -13,6 +13,7 @@ use super::super::{
     MIN_NODE_SPACING_FLOOR, MULTI_EDGE_OFFSET_RATIO, NodeLayout, SubgraphLayout, TextBlock,
     anchor_layout_for_edge,
 };
+use super::plan;
 use super::post_route;
 use super::roles;
 use super::route_labels;
@@ -845,6 +846,24 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
         graph.direction,
         graph.kind,
     );
+    if graph.kind == DiagramKind::Flowchart {
+        let route_label_centers = route_labels::route_label_centers(&route_label_plans);
+        let plan_snapshot = plan::FlowchartLayoutPlan::from_current_pipeline(
+            graph,
+            nodes,
+            subgraphs,
+            &edge_ports,
+            &pair_counts,
+            &pair_index,
+            &cross_edge_offsets,
+            &routed_points,
+            &label_anchors,
+            &route_label_centers,
+            edge_route_labels,
+            config,
+        );
+        debug_assert!(plan_snapshot.is_consistent());
+    }
     if let Some(metrics) = stage_metrics {
         metrics.edge_routing_us = metrics
             .edge_routing_us

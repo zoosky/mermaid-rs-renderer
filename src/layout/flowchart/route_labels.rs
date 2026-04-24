@@ -54,6 +54,13 @@ pub(super) fn should_route_labels_via(graph: &Graph, nodes: &BTreeMap<String, No
     !has_label_dummies && graph.kind != DiagramKind::Er
 }
 
+pub(super) fn route_label_centers(plans: &[Option<RouteLabelPlan>]) -> Vec<Option<(f32, f32)>> {
+    plans
+        .iter()
+        .map(|plan| plan.as_ref().map(|plan| plan.center))
+        .collect()
+}
+
 fn flowchart_label_needs_reserved_route_gap(label: &TextBlock, config: &LayoutConfig) -> bool {
     if label.lines.len() > 1 {
         return true;
