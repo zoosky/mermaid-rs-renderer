@@ -168,6 +168,8 @@ pub(super) fn compute_block_layout(graph: &Graph, theme: &Theme, config: &Layout
             end_decoration: edge.end_decoration,
             style: edge.style,
             override_style,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
     }
 

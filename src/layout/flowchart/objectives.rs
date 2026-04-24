@@ -810,6 +810,8 @@ mod tests {
             anchor_subgraph: None,
             hidden: false,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         }
     }
 
@@ -828,6 +830,8 @@ mod tests {
             start_decoration: None,
             end_decoration: None,
             style: EdgeStyle::Solid,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         }
     }
 
@@ -845,6 +849,8 @@ mod tests {
             nodes: vec!["A".to_string(), "B".to_string()],
             direction: None,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
         graph.subgraphs.push(Subgraph {
             id: Some("right".to_string()),
@@ -852,6 +858,8 @@ mod tests {
             nodes: vec!["C".to_string(), "D".to_string()],
             direction: None,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
 
         let edge = make_edge("A", "C", "cross subgraph request payload");
@@ -903,6 +911,8 @@ mod tests {
             nodes: vec!["A".to_string(), "B".to_string()],
             direction: None,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
         graph.subgraphs.push(Subgraph {
             id: Some("right".to_string()),
@@ -910,6 +920,8 @@ mod tests {
             nodes: vec!["C".to_string(), "D".to_string()],
             direction: None,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
 
         let mut nodes = BTreeMap::from([

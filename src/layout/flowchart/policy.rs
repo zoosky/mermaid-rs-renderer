@@ -269,6 +269,8 @@ mod tests {
             anchor_subgraph: None,
             hidden: false,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         }
     }
 
@@ -284,6 +286,8 @@ mod tests {
                 shape: crate::ir::NodeShape::Rectangle,
                 value: None,
                 icon: None,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             },
         );
 
@@ -314,6 +318,8 @@ mod tests {
                     shape: crate::ir::NodeShape::Rectangle,
                     value: None,
                     icon: None,
+                    #[cfg(feature = "source-provenance")]
+                    source_loc: None,
                 },
             );
         }
@@ -331,6 +337,8 @@ mod tests {
             start_decoration: None,
             end_decoration: None,
             style: crate::ir::EdgeStyle::Solid,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
         graph.edges.push(crate::ir::Edge {
             from: "B".to_string(),
@@ -346,6 +354,8 @@ mod tests {
             start_decoration: None,
             end_decoration: None,
             style: crate::ir::EdgeStyle::Solid,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
         graph.edges.push(crate::ir::Edge {
             from: "C".to_string(),
@@ -361,6 +371,8 @@ mod tests {
             start_decoration: None,
             end_decoration: None,
             style: crate::ir::EdgeStyle::Solid,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
 
         assert!(!is_tiny_graph_layout(&graph));

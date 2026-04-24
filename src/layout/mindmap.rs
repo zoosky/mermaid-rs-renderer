@@ -289,6 +289,8 @@ pub(super) fn compute_mindmap_layout(
                 anchor_subgraph: None,
                 hidden: false,
                 icon: None,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             },
         );
 
@@ -424,6 +426,8 @@ pub(super) fn compute_mindmap_layout(
             end_decoration: None,
             style: crate::ir::EdgeStyle::Solid,
             override_style,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
     }
 

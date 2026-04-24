@@ -69,6 +69,39 @@ const SEQUENCE_VIEWBOX_PAD_RIGHT: f32 = 50.0;
 const SEQUENCE_VIEWBOX_PAD_TOP: f32 = 10.0;
 const SEQUENCE_VIEWBOX_PAD_BOTTOM: f32 = 11.0;
 
+/// Formats a `source-provenance` attribute string for inclusion on a
+/// rendered SVG element. Returns `" data-source-line=\"N\""` (plus
+/// `data-source-col=\"M\"` when `col > 0`) with a leading space so
+/// it composes directly into `format!` calls that already emit
+/// attributes like `class="..."`. Returns an empty string when
+/// `loc == None`. Only compiled when the `source-provenance` feature
+/// is on.
+///
+/// Two call-site patterns exist, both valid:
+///
+/// 1. **Full `#[cfg]` guard** (used at the `<g>` wrapper sites for
+///    nodes and subgraphs): the whole `svg.push_str(...)` is inside
+///    `#[cfg(feature = "source-provenance")]` so `prov_attr` is only
+///    referenced when the feature is on.
+/// 2. **Conditional `prov` binding** (used at inline attribute sites
+///    on `<path>`/`<rect>` emissions): a `#[cfg]` / `#[cfg(not)]`
+///    pair produces `let prov = prov_attr(...)` or `let prov = ""`;
+///    the binding is then interpolated unconditionally via `{prov}`
+///    in the single `format!` for that element. This keeps the
+///    format string a single source of truth when the attribute is
+///    one of several interpolations.
+#[cfg(feature = "source-provenance")]
+fn prov_attr(loc: Option<(u32, u32)>) -> String {
+    match loc {
+        None => String::new(),
+        Some((line, 0)) => format!(" data-source-line=\"{}\"", line),
+        Some((line, col)) => {
+            format!(" data-source-line=\"{}\" data-source-col=\"{}\"", line, col)
+        }
+    }
+}
+
+
 pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> String {
     let mut svg = String::new();
     let state_font_size = if layout.kind == crate::ir::DiagramKind::State {
@@ -411,6 +444,8 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
             if invisible {
                 continue;
             }
+            #[cfg(feature = "source-provenance")]
+            svg.push_str(&format!("<g{}>", prov_attr(subgraph.source_loc)));
             let header_h = if label_empty {
                 0.0
             } else {
@@ -506,19 +541,22 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
                 && sub_fill.as_str() == "none"
                 && sub_stroke.as_str() == "none"
                 && sub_stroke_width <= 0.0;
-            if !invisible {
-                svg.push_str(&format!(
-                    "<rect x=\"{:.2}\" y=\"{:.2}\" width=\"{:.2}\" height=\"{:.2}\" rx=\"10\" ry=\"10\" fill=\"{}\" stroke=\"{}\" stroke-width=\"{}\"{} />",
-                    subgraph.x,
-                    subgraph.y,
-                    subgraph.width,
-                    subgraph.height,
-                    sub_fill,
-                    sub_stroke,
-                    sub_stroke_width,
-                    sub_dash
-                ));
+            if invisible {
+                continue;
             }
+            #[cfg(feature = "source-provenance")]
+            svg.push_str(&format!("<g{}>", prov_attr(subgraph.source_loc)));
+            svg.push_str(&format!(
+                "<rect x=\"{:.2}\" y=\"{:.2}\" width=\"{:.2}\" height=\"{:.2}\" rx=\"10\" ry=\"10\" fill=\"{}\" stroke=\"{}\" stroke-width=\"{}\"{} />",
+                subgraph.x,
+                subgraph.y,
+                subgraph.width,
+                subgraph.height,
+                sub_fill,
+                sub_stroke,
+                sub_stroke_width,
+                sub_dash
+            ));
             if !label_empty {
                 let label_x = subgraph.x + subgraph.width / 2.0;
                 let label_y = subgraph.y + 12.0 + subgraph.label_block.height / 2.0;
@@ -538,6 +576,8 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
                 ));
             }
         }
+        #[cfg(feature = "source-provenance")]
+        svg.push_str("</g>");
     }
 
     let overlay_flowchart = layout.kind == crate::ir::DiagramKind::Flowchart;
@@ -574,8 +614,12 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
 
     for frame in seq_data.map(|s| s.frames.as_slice()).unwrap_or_default() {
         let stroke = theme.primary_border_color.as_str();
+        #[cfg(feature = "source-provenance")]
+        let prov = prov_attr(frame.source_loc);
+        #[cfg(not(feature = "source-provenance"))]
+        let prov = "";
         svg.push_str(&format!(
-            "<rect x=\"{:.2}\" y=\"{:.2}\" width=\"{:.2}\" height=\"{:.2}\" fill=\"none\" stroke=\"{}\" stroke-width=\"2.0\" stroke-dasharray=\"2 2\"/>",
+            "<rect x=\"{:.2}\" y=\"{:.2}\" width=\"{:.2}\" height=\"{:.2}\" fill=\"none\" stroke=\"{}\" stroke-width=\"2.0\" stroke-dasharray=\"2 2\"{prov}/>",
             frame.x, frame.y, frame.width, frame.height, stroke
         ));
         for divider_y in &frame.dividers {
@@ -638,8 +682,12 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
         .map(|s| s.activations.as_slice())
         .unwrap_or_default()
     {
+        #[cfg(feature = "source-provenance")]
+        let prov = prov_attr(activation.source_loc);
+        #[cfg(not(feature = "source-provenance"))]
+        let prov = "";
         svg.push_str(&format!(
-            "<rect x=\"{:.2}\" y=\"{:.2}\" width=\"{:.2}\" height=\"{:.2}\" fill=\"{}\" stroke=\"{}\" stroke-width=\"1\"/>",
+            "<rect x=\"{:.2}\" y=\"{:.2}\" width=\"{:.2}\" height=\"{:.2}\" fill=\"{}\" stroke=\"{}\" stroke-width=\"1\"{prov}/>",
             activation.x,
             activation.y,
             activation.width,
@@ -661,8 +709,12 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
         let y2 = note.y + note.height;
         let fold_x = x2 - fold;
         let fold_y = y + fold;
+        #[cfg(feature = "source-provenance")]
+        let prov = prov_attr(note.source_loc);
+        #[cfg(not(feature = "source-provenance"))]
+        let prov = "";
         svg.push_str(&format!(
-            "<path d=\"M {x:.2} {y:.2} L {fold_x:.2} {y:.2} L {x2:.2} {fold_y:.2} L {x2:.2} {y2:.2} L {x:.2} {y2:.2} Z\" fill=\"{fill}\" stroke=\"{stroke}\" stroke-width=\"1.1\"/>"
+            "<path d=\"M {x:.2} {y:.2} L {fold_x:.2} {y:.2} L {x2:.2} {fold_y:.2} L {x2:.2} {y2:.2} L {x:.2} {y2:.2} Z\" fill=\"{fill}\" stroke=\"{stroke}\" stroke-width=\"1.1\"{prov}/>"
         ));
         svg.push_str(&format!(
             "<polyline points=\"{fold_x:.2},{y:.2} {fold_x:.2},{fold_y:.2} {x2:.2},{fold_y:.2}\" fill=\"none\" stroke=\"{stroke}\" stroke-width=\"1.0\"/>"
@@ -747,8 +799,12 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
                 dash = format!("stroke-dasharray=\"{}\"", dash_override);
             }
             let stroke_width = edge.override_style.stroke_width.unwrap_or(1.5);
+            #[cfg(feature = "source-provenance")]
+            let prov = prov_attr(edge.source_loc);
+            #[cfg(not(feature = "source-provenance"))]
+            let prov = "";
             svg.push_str(&format!(
-                "<path id=\"{edge_id}\" class=\"edgePath\" data-edge-id=\"{edge_id}\" d=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\" {} {} {} stroke-linecap=\"round\" stroke-linejoin=\"round\" />",
+                "<path id=\"{edge_id}\" class=\"edgePath\" data-edge-id=\"{edge_id}\"{prov} d=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\" {} {} {} stroke-linecap=\"round\" stroke-linejoin=\"round\" />",
                 d, stroke, stroke_width, marker_end, marker_start, dash
             ));
 
@@ -972,6 +1028,10 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
             let d = points_to_path(&edge.points);
             let mut stroke = theme.line_color.clone();
             let edge_id = edge_dom_id(edge_idx);
+            #[cfg(feature = "source-provenance")]
+            let prov = prov_attr(edge.source_loc);
+            #[cfg(not(feature = "source-provenance"))]
+            let prov = "";
             let (mut dash, mut stroke_width) = match edge.style {
                 crate::ir::EdgeStyle::Solid => (String::new(), base_edge_width),
                 crate::ir::EdgeStyle::Dotted => {
@@ -1029,7 +1089,7 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
                 dash = format!("stroke-dasharray=\"{}\"", dash_override);
             }
             svg.push_str(&format!(
-                "<path id=\"{edge_id}\" class=\"edgePath\" data-edge-id=\"{edge_id}\" d=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\" {} {} {} stroke-linecap=\"round\" stroke-linejoin=\"round\" />",
+                "<path id=\"{edge_id}\" class=\"edgePath\" data-edge-id=\"{edge_id}\"{prov} d=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\" {} {} {} stroke-linecap=\"round\" stroke-linejoin=\"round\" />",
                 d, stroke, stroke_width, marker_end, marker_start, dash
             ));
 
@@ -1327,6 +1387,14 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
             if node.anchor_subgraph.is_some() {
                 continue;
             }
+            // Wrap each rendered node in `<g>` carrying the
+            // source-provenance attribute. Closed after the per-node
+            // emission below. When the feature is off the wrapper is
+            // skipped entirely so output stays byte-identical.
+            #[cfg(feature = "source-provenance")]
+            {
+                svg.push_str(&format!("<g{}>", prov_attr(node.source_loc)));
+            }
             if let Some(link) = node.link.as_ref() {
                 svg.push_str(&format!("<a {}>", link_attrs(link)));
                 if let Some(title) = link.title.as_deref() {
@@ -1338,6 +1406,8 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
                 if node.link.is_some() {
                     svg.push_str("</a>");
                 }
+                #[cfg(feature = "source-provenance")]
+                svg.push_str("</g>");
                 continue;
             }
             svg.push_str(&shape_svg(node, theme, config));
@@ -1418,6 +1488,8 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
             if node.link.is_some() {
                 svg.push_str("</a>");
             }
+            #[cfg(feature = "source-provenance")]
+            svg.push_str("</g>");
         }
 
         for footbox in seq_data.map(|s| s.footboxes.as_slice()).unwrap_or_default() {
@@ -6056,6 +6128,8 @@ mod tests {
             start_decoration: None,
             end_decoration: None,
             style: crate::ir::EdgeStyle::Solid,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
         let layout = compute_layout(&graph, &Theme::modern(), &LayoutConfig::default());
         let svg = render_svg(&layout, &Theme::modern(), &LayoutConfig::default());
@@ -6197,6 +6271,8 @@ mod tests {
             anchor_subgraph: None,
             hidden: false,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         };
 
         assert_eq!(
@@ -6283,6 +6359,8 @@ mod tests {
             anchor_subgraph: None,
             hidden: false,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         };
         let mut config = LayoutConfig::default();
         config.mindmap.default_corner_radius = 0.0;

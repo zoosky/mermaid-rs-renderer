@@ -261,6 +261,8 @@ pub(super) fn compute_sankey_layout(graph: &Graph, theme: &Theme, config: &Layou
                 anchor_subgraph: None,
                 hidden: false,
                 icon: None,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             },
         );
         sankey_nodes.push(SankeyNodeLayout {
@@ -318,6 +320,8 @@ pub(super) fn compute_sankey_layout(graph: &Graph, theme: &Theme, config: &Layou
                 dasharray: None,
                 label_color: None,
             },
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
         sankey_links.push(SankeyLinkLayout {
             source: from_id,

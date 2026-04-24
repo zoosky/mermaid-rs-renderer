@@ -2,6 +2,102 @@
 
 ## [Unreleased]
 
+### Added: `source-provenance` cargo feature (Phase 1: flowchart, sequence, state)
+
+- New default-on cargo feature `source-provenance` that threads the
+  1-based line of each IR element's originating source statement
+  through the parser → IR → layout → render pipeline, and emits it
+  on the rendered SVG as `data-source-line="N"` attributes.
+- Enables agent ergonomics ("click diagram → jump to source line"),
+  dev-mode overlays, and LLM correction loops that quote the failing
+  line in a warning box.
+- When the feature is disabled (`--no-default-features --features
+  cli,png`), the `source_loc` IR field disappears entirely and the
+  SVG output is byte-identical to the pre-patch baseline -- zero
+  runtime overhead, zero extra SVG bytes, zero struct size growth.
+- Phase 1 coverage: **flowchart**, **sequence**, **state**. These
+  three diagram types cover ~80% of real-world Mermaid usage. The
+  remaining 20 diagram types (class, ER, pie, gantt, gitgraph, c4,
+  mindmap, timeline, xychart, block, quadrant, sankey, treemap,
+  journey, kanban, radar, requirement, architecture, ...) keep
+  their existing SVG output; provenance for those types is a
+  follow-up.
+
+### IR changes
+
+- `Option<(u32, u32)>` `source_loc` field (cfg-gated on
+  `source-provenance`) added to `Node`, `NodeLink`, `Edge`,
+  `Subgraph`, `SequenceNote`, `SequenceActivation`, `SequenceFrame`.
+  Column is always `0` in Phase 1 (the current parser preserves
+  line-level positions only); column support is a follow-up. Rule
+  per the spec: emit `data-source-col` only when `col > 0`, so
+  Phase 1 output carries `data-source-line` but no `data-source-col`.
+- For nodes that appear on multiple lines (e.g.
+  `A --> B\nA --> C`), first-mention wins.
+- For multi-line constructs (`subgraph`/`end`, `alt`/`end`,
+  `loop`/`end`, composite state `{...}`, `activate`/`deactivate`),
+  `source_loc` is the **opening** line, not the closing `end`.
+
+### Parser changes
+
+- New `preprocess_input_numbered` helper that returns
+  `Vec<(u32, String)>` tracking the **original 1-based line** of
+  each retained statement in the source, not the post-preprocess
+  index (comments, blank lines, and `%%{init}%%` directives no
+  longer shift line numbers).
+- `parse_flowchart`, `parse_sequence_diagram`, and
+  `parse_state_diagram` now populate `source_loc` at every
+  constructor call site (Node, Edge, Subgraph, SequenceNote,
+  SequenceActivation, SequenceFrame).
+- `add_flowchart_edge` grew an optional `line_no` parameter
+  (cfg-gated) used to attribute edges back to the source line
+  that declared them.
+
+### Layout changes
+
+- `NodeLayout`, `EdgeLayout`, `SubgraphLayout`,
+  `SequenceNoteLayout`, `SequenceActivationLayout`,
+  `SequenceFrameLayout` each grew a cfg-gated `source_loc`
+  field. Layout code carries the value forward by direct copy;
+  layout algorithms do not consult it.
+- `SequenceActivationLayout` derives its provenance from the
+  **activate** line stored at stack push time, so closed
+  activations carry the opening line rather than the deactivate's
+  line.
+
+### Render changes
+
+- Flowchart / state node rendering now wraps each node's SVG
+  output in `<g data-source-line="N">...</g>` when provenance is
+  available. The group wrapper is omitted when `source_loc == None`
+  (e.g. synthetic label dummies).
+- Flowchart / state subgraph cluster rendering wraps the cluster
+  rects + label in the same `<g>` wrapper.
+- Flowchart / state / sequence edge `<path>` elements emit
+  `data-source-line` inline as an attribute.
+- Sequence frame rects (`alt`, `loop`, `par`, `opt`, `rect`,
+  `critical`, `break`), sequence activation rects, and sequence
+  note `<path>` elements emit the attribute inline.
+- New helper `prov_attr(loc)` (cfg-gated) centralises formatting
+  so every call site emits the same attribute shape.
+
+### Tests
+
+- Three new integration test files: `tests/provenance_flowchart.rs`
+  (5 cases), `tests/provenance_sequence.rs` (5 cases),
+  `tests/provenance_state.rs` (5 cases). 15 new cases total.
+- Cases cover: edges carrying source-line, first-mention wins for
+  nodes, opening-line (not closing `end`) for subgraphs / frames
+  / composite states, `activate`/`deactivate` spans attributing to
+  the activate line, and blank/comment lines not offsetting line
+  numbers.
+- Sequence tests use `parse_mermaid` + `compute_layout` +
+  `render_svg` directly rather than `render_with_options`, because
+  the preflight validator (f160b) treats any bare `end` as a
+  subgraph close -- a pre-existing bug to be fixed separately.
+- All 162 existing library tests continue to pass with the feature
+  on and with the feature off.
+
 ### Added: `embedded-font` cargo feature
 
 - New cargo feature `embedded-font` (not in `default`) that ships

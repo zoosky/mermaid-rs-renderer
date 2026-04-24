@@ -181,6 +181,48 @@ fn detect_diagram_kind(input: &str) -> DiagramKind {
     DiagramKind::Flowchart
 }
 
+/// Variant of `preprocess_input` that also returns the 1-based line
+/// number each retained statement came from in the original input.
+/// Used by parsers that populate `source_loc` for source-line
+/// provenance. Always available so the flowchart / sequence / state
+/// parsers do not need to fork their control flow on the
+/// `source-provenance` cargo feature; callers either use the line
+/// number (feature on) or ignore it (feature off, via `let _`).
+fn preprocess_input_numbered(
+    input: &str,
+) -> Result<(Vec<(u32, String)>, Option<serde_json::Value>)> {
+    let mut init_config: Option<serde_json::Value> = None;
+    let mut lines = Vec::new();
+
+    for (idx, raw_line) in input.lines().enumerate() {
+        let line_no = (idx as u32) + 1;
+        let trimmed_line = raw_line.trim();
+        if trimmed_line.is_empty() {
+            continue;
+        }
+        if let Some(caps) = INIT_RE.captures(trimmed_line) {
+            if let Some(json_str) = caps.get(1).map(|m| m.as_str()) {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_str) {
+                    init_config = Some(value);
+                } else if let Ok(value) = json5::from_str::<serde_json::Value>(json_str) {
+                    init_config = Some(value);
+                }
+            }
+            continue;
+        }
+        if trimmed_line.starts_with("%%") {
+            continue;
+        }
+        let without_comment = strip_trailing_comment(trimmed_line);
+        if without_comment.is_empty() {
+            continue;
+        }
+        lines.push((line_no, without_comment.to_string()));
+    }
+
+    Ok((lines, init_config))
+}
+
 fn preprocess_input(input: &str) -> Result<(Vec<String>, Option<serde_json::Value>)> {
     let mut init_config: Option<serde_json::Value> = None;
     let mut lines = Vec::new();
@@ -258,9 +300,13 @@ fn parse_flowchart(input: &str) -> Result<ParseOutput> {
     graph.kind = DiagramKind::Flowchart;
     let mut subgraph_stack: Vec<usize> = Vec::new();
 
-    let (lines, init_config) = preprocess_input(input)?;
+    let (lines, init_config) = preprocess_input_numbered(input)?;
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        // `line_no` is only read when the source-provenance feature is
+        // on; silence the unused-variable warning otherwise.
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         for line in split_statements(&raw_line) {
             if line.is_empty() {
                 continue;
@@ -287,6 +333,8 @@ fn parse_flowchart(input: &str) -> Result<ParseOutput> {
                     nodes: Vec::new(),
                     direction: None,
                     icon: None,
+                    #[cfg(feature = "source-provenance")]
+                    source_loc: Some((line_no, 0)),
                 });
                 subgraph_stack.push(graph.subgraphs.len() - 1);
                 if let Some(id) = id {
@@ -327,6 +375,12 @@ fn parse_flowchart(input: &str) -> Result<ParseOutput> {
             }
 
             if let Some((id, link)) = parse_click_line(&line) {
+                #[cfg(feature = "source-provenance")]
+                let link = {
+                    let mut link = link;
+                    link.source_loc = Some((line_no, 0));
+                    link
+                };
                 graph.node_links.insert(id, link);
                 continue;
             }
@@ -341,14 +395,26 @@ fn parse_flowchart(input: &str) -> Result<ParseOutput> {
             if let Some(chain_lines) = split_edge_chain(&line) {
                 let mut added = false;
                 for edge_line in chain_lines {
-                    added |= add_flowchart_edge(&edge_line, &mut graph, &subgraph_stack);
+                    added |= add_flowchart_edge(
+                        &edge_line,
+                        &mut graph,
+                        &subgraph_stack,
+                        #[cfg(feature = "source-provenance")]
+                        line_no,
+                    );
                 }
                 if added {
                     continue;
                 }
             }
 
-            if add_flowchart_edge(&line, &mut graph, &subgraph_stack) {
+            if add_flowchart_edge(
+                &line,
+                &mut graph,
+                &subgraph_stack,
+                #[cfg(feature = "source-provenance")]
+                line_no,
+            ) {
                 continue;
             }
 
@@ -356,6 +422,12 @@ fn parse_flowchart(input: &str) -> Result<ParseOutput> {
                 graph.ensure_node(&node_id, node_label, node_shape);
                 apply_node_classes(&mut graph, &node_id, &node_classes);
                 add_node_to_subgraphs(&mut graph, &subgraph_stack, &node_id);
+                #[cfg(feature = "source-provenance")]
+                if let Some(n) = graph.nodes.get_mut(&node_id) {
+                    if n.source_loc.is_none() {
+                        n.source_loc = Some((line_no, 0));
+                    }
+                }
             }
         }
     }
@@ -363,7 +435,12 @@ fn parse_flowchart(input: &str) -> Result<ParseOutput> {
     Ok(ParseOutput { graph, init_config })
 }
 
-fn add_flowchart_edge(line: &str, graph: &mut Graph, subgraph_stack: &[usize]) -> bool {
+fn add_flowchart_edge(
+    line: &str,
+    graph: &mut Graph,
+    subgraph_stack: &[usize],
+    #[cfg(feature = "source-provenance")] line_no: u32,
+) -> bool {
     let Some((left, label, right, edge_meta)) = parse_edge_line(line) else {
         return false;
     };
@@ -377,6 +454,12 @@ fn add_flowchart_edge(line: &str, graph: &mut Graph, subgraph_stack: &[usize]) -
         graph.ensure_node(&left_id, left_label, left_shape);
         apply_node_classes(graph, &left_id, &left_classes);
         add_node_to_subgraphs(graph, subgraph_stack, &left_id);
+        #[cfg(feature = "source-provenance")]
+        if let Some(n) = graph.nodes.get_mut(&left_id) {
+            if n.source_loc.is_none() {
+                n.source_loc = Some((line_no, 0));
+            }
+        }
         source_ids.push(left_id);
     }
 
@@ -386,6 +469,12 @@ fn add_flowchart_edge(line: &str, graph: &mut Graph, subgraph_stack: &[usize]) -
         graph.ensure_node(&right_id, right_label, right_shape);
         apply_node_classes(graph, &right_id, &right_classes);
         add_node_to_subgraphs(graph, subgraph_stack, &right_id);
+        #[cfg(feature = "source-provenance")]
+        if let Some(n) = graph.nodes.get_mut(&right_id) {
+            if n.source_loc.is_none() {
+                n.source_loc = Some((line_no, 0));
+            }
+        }
         target_ids.push(right_id);
     }
 
@@ -405,6 +494,8 @@ fn add_flowchart_edge(line: &str, graph: &mut Graph, subgraph_stack: &[usize]) -
                 start_decoration: edge_meta.start_decoration,
                 end_decoration: edge_meta.end_decoration,
                 style: edge_meta.style,
+                #[cfg(feature = "source-provenance")]
+                source_loc: Some((line_no, 0)),
             });
         }
     }
@@ -1280,6 +1371,8 @@ fn parse_class_diagram(input: &str) -> Result<ParseOutput> {
                 start_decoration: meta.start_decoration,
                 end_decoration: meta.end_decoration,
                 style: meta.style,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             });
             continue;
         }
@@ -1574,6 +1667,8 @@ fn parse_er_diagram(input: &str) -> Result<ParseOutput> {
                 start_decoration: left_decoration,
                 end_decoration: right_decoration,
                 style,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             });
             continue;
         }
@@ -1799,6 +1894,8 @@ fn parse_mindmap_diagram(input: &str) -> Result<ParseOutput> {
                 start_decoration: None,
                 end_decoration: None,
                 style: crate::ir::EdgeStyle::Solid,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             });
         } else {
             stack.clear();
@@ -1923,6 +2020,8 @@ fn parse_journey_diagram(input: &str) -> Result<ParseOutput> {
                 nodes: Vec::new(),
                 direction: None,
                 icon: None,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             });
             current_section = Some(graph.subgraphs.len() - 1);
             last_task = None;
@@ -1965,6 +2064,8 @@ fn parse_journey_diagram(input: &str) -> Result<ParseOutput> {
                     start_decoration: None,
                     end_decoration: None,
                     style: crate::ir::EdgeStyle::Solid,
+                    #[cfg(feature = "source-provenance")]
+                    source_loc: None,
                 });
             }
             last_task = Some(node_id);
@@ -2158,6 +2259,8 @@ fn parse_gantt_diagram(input: &str) -> Result<ParseOutput> {
                 nodes: Vec::new(),
                 direction: None,
                 icon: None,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             });
             current_section = Some(graph.subgraphs.len() - 1);
             current_section_name = Some(label.to_string());
@@ -2219,6 +2322,8 @@ fn parse_gantt_diagram(input: &str) -> Result<ParseOutput> {
                     start_decoration: None,
                     end_decoration: None,
                     style: crate::ir::EdgeStyle::Solid,
+                    #[cfg(feature = "source-provenance")]
+                    source_loc: None,
                 });
             } else if let Some(prev) = last_task.take() {
                 graph.edges.push(crate::ir::Edge {
@@ -2235,6 +2340,8 @@ fn parse_gantt_diagram(input: &str) -> Result<ParseOutput> {
                     start_decoration: None,
                     end_decoration: None,
                     style: crate::ir::EdgeStyle::Solid,
+                    #[cfg(feature = "source-provenance")]
+                    source_loc: None,
                 });
             }
 
@@ -2432,6 +2539,8 @@ fn parse_requirement_diagram(input: &str) -> Result<ParseOutput> {
                 start_decoration: None,
                 end_decoration: None,
                 style: crate::ir::EdgeStyle::Solid,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             });
             continue;
         }
@@ -3408,6 +3517,8 @@ fn parse_sankey_diagram(input: &str) -> Result<ParseOutput> {
             start_decoration: None,
             end_decoration: None,
             style: crate::ir::EdgeStyle::Solid,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
     }
 
@@ -3542,6 +3653,8 @@ fn parse_zenuml_diagram(input: &str) -> Result<ParseOutput> {
                 start_decoration: None,
                 end_decoration: None,
                 style,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             });
         }
     }
@@ -3658,6 +3771,8 @@ fn parse_block_diagram(input: &str) -> Result<ParseOutput> {
                         start_decoration: edge_meta.start_decoration,
                         end_decoration: edge_meta.end_decoration,
                         style: edge_meta.style,
+                        #[cfg(feature = "source-provenance")]
+                        source_loc: None,
                     });
                 }
             }
@@ -3761,6 +3876,8 @@ fn parse_packet_diagram(input: &str) -> Result<ParseOutput> {
                     start_decoration: None,
                     end_decoration: None,
                     style: crate::ir::EdgeStyle::Solid,
+                    #[cfg(feature = "source-provenance")]
+                    source_loc: None,
                 });
             }
             last_node = Some(node_id);
@@ -3798,6 +3915,8 @@ fn parse_kanban_diagram(input: &str) -> Result<ParseOutput> {
                 nodes: Vec::new(),
                 direction: None,
                 icon: None,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             });
             current_section = Some(graph.subgraphs.len() - 1);
             continue;
@@ -3855,6 +3974,8 @@ fn parse_architecture_diagram(input: &str) -> Result<ParseOutput> {
                         nodes: Vec::new(),
                         direction: None,
                         icon,
+                        #[cfg(feature = "source-provenance")]
+                        source_loc: None,
                     });
                     groups.insert(id, graph.subgraphs.len() - 1);
                 } else {
@@ -3891,6 +4012,8 @@ fn parse_architecture_diagram(input: &str) -> Result<ParseOutput> {
                 start_decoration: None,
                 end_decoration: None,
                 style: crate::ir::EdgeStyle::Solid,
+                #[cfg(feature = "source-provenance")]
+                source_loc: None,
             });
         }
     }
@@ -4100,6 +4223,8 @@ fn parse_treemap_diagram(input: &str) -> Result<ParseOutput> {
                     start_decoration: None,
                     end_decoration: None,
                     style: crate::ir::EdgeStyle::Solid,
+                    #[cfg(feature = "source-provenance")]
+                    source_loc: None,
                 });
             }
         } else {
@@ -4309,7 +4434,7 @@ fn parse_xy_series_line(line: &str) -> Option<(String, Vec<String>)> {
 fn parse_state_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::State;
-    let (lines, init_config) = preprocess_input(input)?;
+    let (lines, init_config) = preprocess_input_numbered(input)?;
 
     let mut labels: HashMap<String, String> = HashMap::new();
     let mut descriptions: HashMap<String, Vec<String>> = HashMap::new();
@@ -4327,7 +4452,10 @@ fn parse_state_diagram(input: &str) -> Result<ParseOutput> {
     }
 
     let mut composite_stack: Vec<CompositeContext> = Vec::new();
-    let mut pending: VecDeque<String> = lines.into();
+    // Carry the originating 1-based line number alongside each
+    // queued statement so deferred fragments (`push_front` below)
+    // stay attributed to the line they came from.
+    let mut pending: VecDeque<(u32, String)> = lines.into();
 
     let record_region_node = |stack: &mut [CompositeContext], node_id: &str| {
         for ctx in stack.iter_mut() {
@@ -4365,6 +4493,8 @@ fn parse_state_diagram(input: &str) -> Result<ParseOutput> {
                     nodes: region_nodes,
                     direction: None,
                     icon: None,
+                    #[cfg(feature = "source-provenance")]
+                    source_loc: None,
                 });
                 graph.subgraph_styles.insert(
                     id,
@@ -4379,7 +4509,9 @@ fn parse_state_diagram(input: &str) -> Result<ParseOutput> {
                 );
             }
         };
-    while let Some(raw_line) = pending.pop_front() {
+    while let Some((line_no, raw_line)) = pending.pop_front() {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         for raw_statement in split_statements(&raw_line) {
             let raw_line = raw_statement.trim();
             if raw_line.is_empty() {
@@ -4446,6 +4578,8 @@ fn parse_state_diagram(input: &str) -> Result<ParseOutput> {
                     nodes: Vec::new(),
                     direction: None,
                     icon: None,
+                    #[cfg(feature = "source-provenance")]
+                    source_loc: Some((line_no, 0)),
                 });
                 subgraph_stack.push(graph.subgraphs.len() - 1);
                 composite_stack.push(CompositeContext {
@@ -4460,14 +4594,14 @@ fn parse_state_diagram(input: &str) -> Result<ParseOutput> {
                         let body = tail[..close_idx].trim();
                         let after = tail[close_idx + 1..].trim();
                         if !after.is_empty() {
-                            pending.push_front(after.to_string());
+                            pending.push_front((line_no, after.to_string()));
                         }
-                        pending.push_front("}".to_string());
+                        pending.push_front((line_no, "}".to_string()));
                         if !body.is_empty() {
-                            pending.push_front(body.to_string());
+                            pending.push_front((line_no, body.to_string()));
                         }
                     } else {
-                        pending.push_front(tail);
+                        pending.push_front((line_no, tail));
                     }
                 }
                 continue;
@@ -4481,6 +4615,12 @@ fn parse_state_diagram(input: &str) -> Result<ParseOutput> {
                     Some(state_display_label(&id, &labels, &descriptions)),
                     state_shape.or(Some(crate::ir::NodeShape::RoundRect)),
                 );
+                #[cfg(feature = "source-provenance")]
+                if let Some(n) = graph.nodes.get_mut(&id) {
+                    if n.source_loc.is_none() {
+                        n.source_loc = Some((line_no, 0));
+                    }
+                }
                 apply_node_classes(&mut graph, &id, &classes);
                 add_node_to_subgraphs(&mut graph, &subgraph_stack, &id);
                 record_region_node(&mut composite_stack, &id);
@@ -4531,6 +4671,19 @@ fn parse_state_diagram(input: &str) -> Result<ParseOutput> {
                 };
                 graph.ensure_node(&left_id, left_label, left_shape);
                 graph.ensure_node(&right_id, right_label, right_shape);
+                #[cfg(feature = "source-provenance")]
+                {
+                    if let Some(n) = graph.nodes.get_mut(&left_id) {
+                        if n.source_loc.is_none() {
+                            n.source_loc = Some((line_no, 0));
+                        }
+                    }
+                    if let Some(n) = graph.nodes.get_mut(&right_id) {
+                        if n.source_loc.is_none() {
+                            n.source_loc = Some((line_no, 0));
+                        }
+                    }
+                }
                 apply_node_classes(&mut graph, &left_id, &left_classes);
                 apply_node_classes(&mut graph, &right_id, &right_classes);
                 add_node_to_subgraphs(&mut graph, &subgraph_stack, &left_id);
@@ -4551,6 +4704,8 @@ fn parse_state_diagram(input: &str) -> Result<ParseOutput> {
                     start_decoration: meta.start_decoration,
                     end_decoration: meta.end_decoration,
                     style: meta.style,
+                    #[cfg(feature = "source-provenance")]
+                    source_loc: Some((line_no, 0)),
                 });
                 continue;
             }
@@ -4563,6 +4718,12 @@ fn parse_state_diagram(input: &str) -> Result<ParseOutput> {
                     Some(state_display_label(&id, &labels, &descriptions)),
                     state_shape.or(Some(crate::ir::NodeShape::RoundRect)),
                 );
+                #[cfg(feature = "source-provenance")]
+                if let Some(n) = graph.nodes.get_mut(&id) {
+                    if n.source_loc.is_none() {
+                        n.source_loc = Some((line_no, 0));
+                    }
+                }
                 apply_node_classes(&mut graph, &id, &classes);
                 add_node_to_subgraphs(&mut graph, &subgraph_stack, &id);
                 record_region_node(&mut composite_stack, &id);
@@ -4584,6 +4745,12 @@ fn parse_state_diagram(input: &str) -> Result<ParseOutput> {
                     state_display_label_option(&target, &labels, &descriptions),
                     shape,
                 );
+                #[cfg(feature = "source-provenance")]
+                if let Some(n) = graph.nodes.get_mut(&target) {
+                    if n.source_loc.is_none() {
+                        n.source_loc = Some((line_no, 0));
+                    }
+                }
                 apply_node_classes(&mut graph, &target, &classes);
                 graph.state_notes.push(crate::ir::StateNote {
                     position,
@@ -4604,6 +4771,12 @@ fn parse_state_diagram(input: &str) -> Result<ParseOutput> {
                     state_display_label_option(&id, &labels, &descriptions),
                     state_shape.or(Some(crate::ir::NodeShape::RoundRect)),
                 );
+                #[cfg(feature = "source-provenance")]
+                if let Some(n) = graph.nodes.get_mut(&id) {
+                    if n.source_loc.is_none() {
+                        n.source_loc = Some((line_no, 0));
+                    }
+                }
                 apply_node_classes(&mut graph, &id, &classes);
                 add_node_to_subgraphs(&mut graph, &subgraph_stack, &id);
                 record_region_node(&mut composite_stack, &id);
@@ -4659,7 +4832,7 @@ fn parse_sequence_diagram(input: &str) -> Result<ParseOutput> {
     let mut graph = Graph::new();
     graph.kind = DiagramKind::Sequence;
     graph.direction = Direction::LeftRight;
-    let (lines, init_config) = preprocess_input(input)?;
+    let (lines, init_config) = preprocess_input_numbered(input)?;
 
     let mut labels: HashMap<String, String> = HashMap::new();
     let mut order: Vec<String> = Vec::new();
@@ -4667,7 +4840,9 @@ fn parse_sequence_diagram(input: &str) -> Result<ParseOutput> {
     let mut frames: Vec<crate::ir::SequenceFrame> = Vec::new();
     let mut open_boxes: Vec<crate::ir::SequenceBox> = Vec::new();
 
-    for raw_line in lines {
+    for (line_no, raw_line) in lines {
+        #[cfg(not(feature = "source-provenance"))]
+        let _ = line_no;
         let line = raw_line.trim();
         if line.is_empty() {
             continue;
@@ -4684,6 +4859,12 @@ fn parse_sequence_diagram(input: &str) -> Result<ParseOutput> {
                 labels.insert(id.clone(), label);
             }
             ensure_sequence_node(&mut graph, &labels, &id, Some(shape));
+            #[cfg(feature = "source-provenance")]
+            if let Some(n) = graph.nodes.get_mut(&id) {
+                if n.source_loc.is_none() {
+                    n.source_loc = Some((line_no, 0));
+                }
+            }
             if let Some(box_ctx) = open_boxes.last_mut()
                 && !box_ctx.participants.contains(&id)
             {
@@ -4747,6 +4928,8 @@ fn parse_sequence_diagram(input: &str) -> Result<ParseOutput> {
                 }],
                 start_idx,
                 end_idx: start_idx,
+                #[cfg(feature = "source-provenance")]
+                source_loc: Some((line_no, 0)),
             });
             continue;
         }
@@ -4838,12 +5021,20 @@ fn parse_sequence_diagram(input: &str) -> Result<ParseOutput> {
                     order.push(id.clone());
                 }
                 ensure_sequence_node(&mut graph, &labels, id, None);
+                #[cfg(feature = "source-provenance")]
+                if let Some(n) = graph.nodes.get_mut(id) {
+                    if n.source_loc.is_none() {
+                        n.source_loc = Some((line_no, 0));
+                    }
+                }
             }
             graph.sequence_notes.push(crate::ir::SequenceNote {
                 position,
                 participants,
                 label,
                 index: graph.edges.len(),
+                #[cfg(feature = "source-provenance")]
+                source_loc: Some((line_no, 0)),
             });
             continue;
         }
@@ -4856,12 +5047,20 @@ fn parse_sequence_diagram(input: &str) -> Result<ParseOutput> {
                     order.push(id.clone());
                 }
                 ensure_sequence_node(&mut graph, &labels, &id, None);
+                #[cfg(feature = "source-provenance")]
+                if let Some(n) = graph.nodes.get_mut(&id) {
+                    if n.source_loc.is_none() {
+                        n.source_loc = Some((line_no, 0));
+                    }
+                }
                 graph
                     .sequence_activations
                     .push(crate::ir::SequenceActivation {
                         participant: id,
                         index: graph.edges.len(),
                         kind: crate::ir::SequenceActivationKind::Activate,
+                        #[cfg(feature = "source-provenance")]
+                        source_loc: Some((line_no, 0)),
                     });
             }
             continue;
@@ -4874,12 +5073,20 @@ fn parse_sequence_diagram(input: &str) -> Result<ParseOutput> {
                     order.push(id.clone());
                 }
                 ensure_sequence_node(&mut graph, &labels, &id, None);
+                #[cfg(feature = "source-provenance")]
+                if let Some(n) = graph.nodes.get_mut(&id) {
+                    if n.source_loc.is_none() {
+                        n.source_loc = Some((line_no, 0));
+                    }
+                }
                 graph
                     .sequence_activations
                     .push(crate::ir::SequenceActivation {
                         participant: id,
                         index: graph.edges.len(),
                         kind: crate::ir::SequenceActivationKind::Deactivate,
+                        #[cfg(feature = "source-provenance")]
+                        source_loc: Some((line_no, 0)),
                     });
             }
             continue;
@@ -4910,6 +5117,19 @@ fn parse_sequence_diagram(input: &str) -> Result<ParseOutput> {
             }
             ensure_sequence_node(&mut graph, &labels, &from, None);
             ensure_sequence_node(&mut graph, &labels, &to, None);
+            #[cfg(feature = "source-provenance")]
+            {
+                if let Some(n) = graph.nodes.get_mut(&from) {
+                    if n.source_loc.is_none() {
+                        n.source_loc = Some((line_no, 0));
+                    }
+                }
+                if let Some(n) = graph.nodes.get_mut(&to) {
+                    if n.source_loc.is_none() {
+                        n.source_loc = Some((line_no, 0));
+                    }
+                }
+            }
             graph.edges.push(crate::ir::Edge {
                 from,
                 to,
@@ -4924,6 +5144,8 @@ fn parse_sequence_diagram(input: &str) -> Result<ParseOutput> {
                 start_decoration: None,
                 end_decoration: None,
                 style,
+                #[cfg(feature = "source-provenance")]
+                source_loc: Some((line_no, 0)),
             });
             if let Some(kind) = activation
                 && let Some(last) = graph.edges.len().checked_sub(1)
@@ -4935,6 +5157,8 @@ fn parse_sequence_diagram(input: &str) -> Result<ParseOutput> {
                         participant,
                         index: last,
                         kind,
+                        #[cfg(feature = "source-provenance")]
+                        source_loc: Some((line_no, 0)),
                     });
             }
         }
@@ -5720,7 +5944,16 @@ fn parse_click_line(line: &str) -> Option<(String, crate::ir::NodeLink)> {
         target = Some(token.clone());
     }
 
-    Some((id, crate::ir::NodeLink { url, title, target }))
+    Some((
+        id,
+        crate::ir::NodeLink {
+            url,
+            title,
+            target,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
+        },
+    ))
 }
 
 fn parse_node_style(input: &str) -> crate::ir::NodeStyle {

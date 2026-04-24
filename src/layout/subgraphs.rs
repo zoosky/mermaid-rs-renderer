@@ -1374,6 +1374,8 @@ pub(super) fn build_subgraph_layouts(
             height: (max_y - min_y) + padding_y + top_padding,
             style,
             icon: sub.icon.clone(),
+            #[cfg(feature = "source-provenance")]
+            source_loc: sub.source_loc,
         });
     }
 
@@ -1468,6 +1470,8 @@ mod tests {
             anchor_subgraph: None,
             hidden: false,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         }
     }
 
@@ -1499,6 +1503,8 @@ mod tests {
             start_decoration: None,
             end_decoration: None,
             style: EdgeStyle::Solid,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         }
     }
 
@@ -1514,6 +1520,8 @@ mod tests {
             nodes: vec!["A".to_string(), "B".to_string()],
             direction: None,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         };
 
         assert_eq!(subgraph_anchor_id(&sub, &nodes), Some("cluster_1"));
@@ -1530,6 +1538,8 @@ mod tests {
             nodes: vec!["cluster_1".to_string(), "A".to_string()],
             direction: None,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         };
 
         assert_eq!(subgraph_anchor_id(&sub, &nodes), None);
@@ -1558,6 +1568,8 @@ mod tests {
             nodes: vec!["A".to_string(), "B".to_string()],
             direction: None,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
 
         let subgraphs = build_subgraph_layouts(&graph, &nodes, &theme, &config);
@@ -1586,6 +1598,8 @@ mod tests {
             height: 60.0,
             style: crate::ir::NodeStyle::default(),
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         };
 
         let lr_from = anchor_layout_for_edge(&anchor, &subgraph, Direction::LeftRight, true);
@@ -1612,6 +1626,8 @@ mod tests {
             nodes: vec!["A".to_string(), "B".to_string(), "C".to_string()],
             direction: None,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
         graph.subgraphs.push(Subgraph {
             id: Some("child".to_string()),
@@ -1619,6 +1635,8 @@ mod tests {
             nodes: vec!["A".to_string(), "B".to_string()],
             direction: None,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
 
         let subgraphs = build_subgraph_layouts(&graph, &nodes, &theme, &config);
@@ -1657,6 +1675,8 @@ mod tests {
             nodes: vec!["A".to_string(), "B".to_string()],
             direction: None,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
         graph.subgraphs.push(Subgraph {
             id: Some("sg2".to_string()),
@@ -1664,6 +1684,8 @@ mod tests {
             nodes: vec!["C".to_string(), "D".to_string()],
             direction: None,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
         graph.edges.push(edge("B", "C"));
 
@@ -1695,6 +1717,8 @@ mod tests {
             ],
             direction: None,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
         graph.subgraphs.push(Subgraph {
             id: Some("__region_1".to_string()),
@@ -1702,6 +1726,8 @@ mod tests {
             nodes: vec!["A".to_string(), "B".to_string()],
             direction: None,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
         graph.subgraphs.push(Subgraph {
             id: Some("__region_2".to_string()),
@@ -1709,6 +1735,8 @@ mod tests {
             nodes: vec!["C".to_string(), "D".to_string()],
             direction: None,
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
         let mut config = LayoutConfig::default();
         config.rank_spacing = 40.0;
@@ -1749,6 +1777,8 @@ mod tests {
             nodes: vec!["A".to_string(), "B".to_string(), "C".to_string()],
             direction: Some(Direction::LeftRight),
             icon: None,
+            #[cfg(feature = "source-provenance")]
+            source_loc: None,
         });
 
         apply_subgraph_direction_overrides(

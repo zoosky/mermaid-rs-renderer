@@ -22,7 +22,7 @@ exclude = [
 ]
 
 [features]
-default = ["cli", "png"]
+default = ["cli", "png", "source-provenance"]
 # CLI support (adds clap dependency)
 cli = ["dep:clap"]
 # PNG output support (adds resvg/usvg dependencies)
@@ -33,6 +33,15 @@ png = ["dep:resvg", "dep:usvg"]
 # the host's fonts directory is not guaranteed to contain Inter (or any
 # sans-serif the caller requests). Adds ~822 KB to the binary.
 embedded-font = []
+# Source-line provenance: thread the 1-based line of the original
+# Mermaid source through the parser -> IR -> layout pipeline, and
+# emit it on the rendered SVG as `data-source-line="N"`. Enables
+# "click diagram -> jump to source line" ergonomics for agents,
+# dev-mode overlays, and LLM correction loops. On by default; disable
+# for the smallest possible SVG output. Phase 1 coverage: flowchart,
+# sequence, state. Remaining diagram types emit no provenance until
+# a follow-up PR lands.
+source-provenance = []
 
 [dependencies]
 anyhow = "1.0"

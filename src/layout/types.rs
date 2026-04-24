@@ -23,6 +23,11 @@ pub struct NodeLayout {
     pub anchor_subgraph: Option<usize>,
     pub hidden: bool,
     pub icon: Option<String>,
+    /// 1-based `(line, col)` from the source. Copied verbatim from
+    /// `crate::ir::Node::source_loc` during layout. See the IR docs
+    /// for the tracking conventions.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -45,6 +50,9 @@ pub struct EdgeLayout {
     pub end_decoration: Option<crate::ir::EdgeDecoration>,
     pub style: crate::ir::EdgeStyle,
     pub override_style: crate::ir::EdgeStyleOverride,
+    /// See `NodeLayout::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +66,9 @@ pub struct SubgraphLayout {
     pub height: f32,
     pub style: crate::ir::NodeStyle,
     pub icon: Option<String>,
+    /// See `NodeLayout::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -86,6 +97,9 @@ pub struct SequenceFrameLayout {
     pub label: SequenceLabel,
     pub section_labels: Vec<SequenceLabel>,
     pub dividers: Vec<f32>,
+    /// See `NodeLayout::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -108,6 +122,9 @@ pub struct SequenceNoteLayout {
     pub position: crate::ir::SequenceNotePosition,
     pub participants: Vec<String>,
     pub index: usize,
+    /// See `NodeLayout::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -129,6 +146,9 @@ pub struct SequenceActivationLayout {
     pub height: f32,
     pub participant: String,
     pub depth: usize,
+    /// See `NodeLayout::source_loc`.
+    #[cfg(feature = "source-provenance")]
+    pub source_loc: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
