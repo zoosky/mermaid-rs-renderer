@@ -89,6 +89,63 @@ pub enum ParseError {
     },
 }
 
+impl ParseError {
+    /// Return the 1-based source line number associated with this
+    /// error, when the variant carries one.
+    ///
+    /// `UnclosedSubgraph` returns the line where the opening
+    /// `subgraph` keyword appeared. Other variants return the line
+    /// where the offending token was seen.
+    #[must_use]
+    pub fn line(&self) -> Option<u32> {
+        match self {
+            Self::UnknownParticipant { line, .. }
+            | Self::UnexpectedToken { line, .. }
+            | Self::InvalidDirective { line, .. } => Some(*line),
+            Self::UnclosedSubgraph { opened_at } => Some(*opened_at),
+        }
+    }
+
+    /// Return the 1-based source column number associated with
+    /// this error, when the variant carries one. `UnknownParticipant`
+    /// and `UnclosedSubgraph` have no meaningful column and return
+    /// `None`.
+    #[must_use]
+    pub fn col(&self) -> Option<u32> {
+        match self {
+            Self::UnexpectedToken { col, .. } | Self::InvalidDirective { col, .. } => Some(*col),
+            Self::UnknownParticipant { .. } | Self::UnclosedSubgraph { .. } => None,
+        }
+    }
+
+    /// Return a short human-readable suggestion for fixing the
+    /// error, when one is available. Callers render it on a
+    /// separate `Suggestion:` line in the lenient warning box.
+    ///
+    /// The text is deliberately short (one line, imperative mood)
+    /// so LLM correction loops and authoring tools can include it
+    /// verbatim.
+    #[must_use]
+    pub fn suggestion(&self) -> Option<String> {
+        match self {
+            Self::UnknownParticipant { candidates, .. } if !candidates.is_empty() => {
+                let mut quoted: Vec<String> = candidates.iter().map(|c| format!("'{c}'")).collect();
+                quoted.sort();
+                quoted.dedup();
+                Some(format!("did you mean {}?", quoted.join(" or ")))
+            }
+            Self::UnclosedSubgraph { .. } => {
+                Some("add a matching `end` before EOF to close the block".to_string())
+            }
+            Self::UnexpectedToken { expected, .. } => Some(format!("expected {expected}")),
+            Self::InvalidDirective { directive, .. } if directive == "init" => {
+                Some("check JSON syntax of the %%{init: ...}%% block".to_string())
+            }
+            _ => None,
+        }
+    }
+}
+
 /// Bridge [`ParseError`] into [`anyhow::Error`] so the legacy
 /// [`render`]/[`render_with_options`] façade can keep its
 /// `anyhow::Result<_>` signature.
@@ -154,5 +211,60 @@ mod tests {
     fn parse_error_is_anyhow_convertible() {
         let e: anyhow::Error = ParseError::UnclosedSubgraph { opened_at: 2 }.into();
         assert!(e.to_string().contains("unclosed subgraph"));
+    }
+
+    #[test]
+    fn line_and_col_accessors() {
+        let e = ParseError::UnexpectedToken {
+            line: 4,
+            col: 7,
+            found: "-->".into(),
+            expected: "node id".into(),
+        };
+        assert_eq!(e.line(), Some(4));
+        assert_eq!(e.col(), Some(7));
+
+        let e = ParseError::UnclosedSubgraph { opened_at: 9 };
+        assert_eq!(e.line(), Some(9));
+        assert_eq!(e.col(), None);
+    }
+
+    #[test]
+    fn suggestion_for_unknown_participant_with_candidates() {
+        let e = ParseError::UnknownParticipant {
+            name: "Aliec".into(),
+            line: 3,
+            candidates: vec!["Alice".into(), "Bob".into()],
+        };
+        let s = e.suggestion().expect("suggestion");
+        assert!(s.contains("'Alice'"));
+        assert!(s.contains("'Bob'"));
+    }
+
+    #[test]
+    fn suggestion_for_unknown_participant_without_candidates_is_none() {
+        let e = ParseError::UnknownParticipant {
+            name: "X".into(),
+            line: 1,
+            candidates: vec![],
+        };
+        assert!(e.suggestion().is_none());
+    }
+
+    #[test]
+    fn suggestion_for_unclosed_subgraph_is_some() {
+        let e = ParseError::UnclosedSubgraph { opened_at: 2 };
+        assert!(e.suggestion().is_some());
+    }
+
+    #[test]
+    fn suggestion_for_unexpected_token_describes_expected() {
+        let e = ParseError::UnexpectedToken {
+            line: 1,
+            col: 1,
+            found: "-->".into(),
+            expected: "node identifier".into(),
+        };
+        assert_eq!(e.suggestion().as_deref(), Some("expected node identifier"));
     }
 }

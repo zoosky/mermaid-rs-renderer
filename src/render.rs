@@ -101,7 +101,6 @@ fn prov_attr(loc: Option<(u32, u32)>) -> String {
     }
 }
 
-
 pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> String {
     let mut svg = String::new();
     let state_font_size = if layout.kind == crate::ir::DiagramKind::State {
@@ -5601,6 +5600,214 @@ fn render_er_node(
         }
     }
 
+    svg
+}
+
+/// Render a parse error as a standalone inline SVG warning box
+/// (Feature f160f -- lenient mode).
+///
+/// The emitted SVG is self-contained: no external CSS, no JS. Fill,
+/// stroke, and highlight colors reference the CSS variables
+/// `--mermaid-warning-bg`, `--mermaid-warning-border`, and
+/// `--mermaid-warning-highlight`, with hardcoded fallbacks so it
+/// renders acceptably standalone even when no variables are set on
+/// an ancestor element.
+///
+/// The box shows:
+///   1. A title line `Diagram parse error (line N, col M)`.
+///   2. The `err.to_string()` message line.
+///   3. An optional `Suggestion: ...` line when
+///      [`crate::error::ParseError::suggestion`] returns `Some`.
+///   4. The original source, with the reported error line
+///      highlighted.
+///
+/// Width is computed from `text_metrics` measurements of each text
+/// block so the SVG dimensions match the sizing convention the rest
+/// of the renderer uses.
+///
+/// # Stability
+///
+/// The SVG shape (classes, `data-kind`, ordering) is a part of the
+/// public API. Changes that alter the DOM shape are breaking
+/// changes for downstream callers (Accent's mermaid wrapper, etc.).
+pub fn render_warning_box(
+    source: &str,
+    err: &crate::error::ParseError,
+    opts: &crate::RenderOptions,
+) -> String {
+    const PAD: f32 = 12.0;
+    const TITLE_FONT_SIZE: f32 = 14.0;
+    const MSG_FONT_SIZE: f32 = 12.0;
+    const MONO_FONT_SIZE: f32 = 12.0;
+    const LINE_HEIGHT_FACTOR: f32 = 1.4;
+    const CORNER_RADIUS: f32 = 4.0;
+    const GUTTER_GAP: f32 = 8.0;
+    const FALLBACK_BG: &str = "#fff4e5";
+    const FALLBACK_BORDER: &str = "#e67e22";
+    const FALLBACK_HIGHLIGHT: &str = "#ffe6cc";
+    const FALLBACK_FG: &str = "#2c3e50";
+    const FALLBACK_GUTTER_FG: &str = "#7f8c8d";
+
+    let font_family = opts.theme.font_family.as_str();
+    let mono_family = "ui-monospace, monospace";
+
+    let err_line = err.line();
+    let err_col = err.col();
+    let err_msg = err.to_string();
+    let suggestion = err.suggestion();
+
+    let title = match (err_line, err_col) {
+        (Some(l), Some(c)) => format!("Diagram parse error (line {l}, col {c})"),
+        (Some(l), None) => format!("Diagram parse error (line {l})"),
+        _ => "Diagram parse error".to_string(),
+    };
+
+    let source_lines: Vec<&str> = if source.is_empty() {
+        Vec::new()
+    } else {
+        source.lines().collect()
+    };
+    let num_lines = source_lines.len();
+
+    let measure = |text: &str, size: f32, family: &str| -> f32 {
+        text_metrics::measure_text_width(text, size, family)
+            .unwrap_or_else(|| text.chars().count() as f32 * size * 0.56)
+    };
+
+    let title_width = measure(&title, TITLE_FONT_SIZE, font_family);
+    let msg_width = measure(&err_msg, MSG_FONT_SIZE, font_family);
+    let sugg_text = suggestion.as_ref().map(|s| format!("Suggestion: {s}"));
+    let sugg_width = sugg_text
+        .as_ref()
+        .map(|t| measure(t, MSG_FONT_SIZE, font_family))
+        .unwrap_or(0.0);
+
+    let line_no_label = if num_lines == 0 {
+        String::from("1")
+    } else {
+        num_lines.to_string()
+    };
+    let gutter_width = measure(&line_no_label, MONO_FONT_SIZE, mono_family) + GUTTER_GAP;
+    let max_source_width = source_lines
+        .iter()
+        .map(|line| measure(line, MONO_FONT_SIZE, mono_family))
+        .fold(0.0f32, f32::max);
+    let source_block_width = gutter_width + max_source_width;
+
+    let content_width = [title_width, msg_width, sugg_width, source_block_width]
+        .into_iter()
+        .fold(0.0f32, f32::max);
+    let width = (content_width + PAD * 2.0).max(240.0);
+
+    let title_line_height = TITLE_FONT_SIZE * LINE_HEIGHT_FACTOR;
+    let msg_line_height = MSG_FONT_SIZE * LINE_HEIGHT_FACTOR;
+    let mono_line_height = MONO_FONT_SIZE * LINE_HEIGHT_FACTOR;
+
+    let title_baseline = PAD + TITLE_FONT_SIZE;
+    let msg_baseline = title_baseline + title_line_height * 0.6 + MSG_FONT_SIZE;
+    let sugg_baseline = msg_baseline + msg_line_height;
+    let source_top = if sugg_text.is_some() {
+        sugg_baseline + msg_line_height * 0.5
+    } else {
+        msg_baseline + msg_line_height * 0.5
+    };
+    let source_bottom = source_top + mono_line_height * num_lines as f32;
+    let height = source_bottom + PAD;
+
+    let mut svg = String::new();
+    svg.push_str(&format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" \
+         viewBox=\"0 0 {width:.1} {height:.1}\" \
+         width=\"{width:.1}\" height=\"{height:.1}\">",
+    ));
+
+    svg.push_str(&format!(
+        "<rect data-kind=\"warning-box\" class=\"mermaid-warning\" \
+         x=\"0.75\" y=\"0.75\" width=\"{w:.1}\" height=\"{h:.1}\" \
+         rx=\"{r:.1}\" ry=\"{r:.1}\" \
+         fill=\"var(--mermaid-warning-bg, {FALLBACK_BG})\" \
+         stroke=\"var(--mermaid-warning-border, {FALLBACK_BORDER})\" stroke-width=\"1.5\"/>",
+        w = width - 1.5,
+        h = height - 1.5,
+        r = CORNER_RADIUS,
+    ));
+
+    svg.push_str(&format!(
+        "<text class=\"mermaid-warning-title\" x=\"{x:.1}\" y=\"{y:.1}\" \
+         font-family=\"{ff}\" font-size=\"{fs:.1}\" font-weight=\"bold\" \
+         fill=\"var(--mermaid-warning-border, {FALLBACK_BORDER})\">{text}</text>",
+        x = PAD,
+        y = title_baseline,
+        ff = escape_xml(font_family),
+        fs = TITLE_FONT_SIZE,
+        text = escape_xml(&title),
+    ));
+
+    svg.push_str(&format!(
+        "<text class=\"mermaid-warning-message\" x=\"{x:.1}\" y=\"{y:.1}\" \
+         font-family=\"{ff}\" font-size=\"{fs:.1}\" \
+         fill=\"{FALLBACK_FG}\">{text}</text>",
+        x = PAD,
+        y = msg_baseline,
+        ff = escape_xml(font_family),
+        fs = MSG_FONT_SIZE,
+        text = escape_xml(&err_msg),
+    ));
+
+    if let Some(text) = &sugg_text {
+        svg.push_str(&format!(
+            "<text class=\"mermaid-warning-suggestion\" x=\"{x:.1}\" y=\"{y:.1}\" \
+             font-family=\"{ff}\" font-size=\"{fs:.1}\" font-style=\"italic\" \
+             fill=\"{FALLBACK_FG}\">{text}</text>",
+            x = PAD,
+            y = sugg_baseline,
+            ff = escape_xml(font_family),
+            fs = MSG_FONT_SIZE,
+            text = escape_xml(text),
+        ));
+    }
+
+    let highlight_idx = err_line
+        .and_then(|n| if n == 0 { None } else { Some((n - 1) as usize) })
+        .filter(|idx| *idx < num_lines);
+
+    if let Some(idx) = highlight_idx {
+        svg.push_str(&format!(
+            "<rect class=\"mermaid-warning-highlight\" x=\"{x:.1}\" y=\"{y:.1}\" \
+             width=\"{w:.1}\" height=\"{h:.1}\" \
+             fill=\"var(--mermaid-warning-highlight, {FALLBACK_HIGHLIGHT})\"/>",
+            x = PAD * 0.5,
+            y = source_top + mono_line_height * idx as f32,
+            w = width - PAD,
+            h = mono_line_height,
+        ));
+    }
+
+    for (i, line) in source_lines.iter().enumerate() {
+        let text_y = source_top + mono_line_height * i as f32 + MONO_FONT_SIZE;
+        svg.push_str(&format!(
+            "<text x=\"{x:.1}\" y=\"{y:.1}\" \
+             font-family=\"{ff}\" font-size=\"{fs:.1}\" \
+             fill=\"{FALLBACK_GUTTER_FG}\">{num}</text>",
+            x = PAD,
+            y = text_y,
+            ff = escape_xml(mono_family),
+            fs = MONO_FONT_SIZE,
+            num = i + 1,
+        ));
+        svg.push_str(&format!(
+            "<text x=\"{x:.1}\" y=\"{y:.1}\" \
+             font-family=\"{ff}\" font-size=\"{fs:.1}\" \
+             fill=\"{FALLBACK_FG}\">{text}</text>",
+            x = PAD + gutter_width,
+            y = text_y,
+            ff = escape_xml(mono_family),
+            fs = MONO_FONT_SIZE,
+            text = escape_xml(line),
+        ));
+    }
+
+    svg.push_str("</svg>");
     svg
 }
 

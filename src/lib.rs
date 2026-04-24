@@ -116,8 +116,27 @@ pub use layout::{
 pub use parser::{ParseOutput, parse_mermaid};
 #[cfg(feature = "png")]
 pub use render::write_output_png;
-pub use render::{render_svg, write_output_svg};
+pub use render::{render_svg, render_warning_box, write_output_svg};
 pub use theme::Theme;
+
+/// How the high-level render functions should treat parse errors.
+///
+/// Picked via [`RenderOptions::mode`]. Existing callers that
+/// construct `RenderOptions` with `..Default::default()` continue
+/// to see today's strict behaviour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RenderMode {
+    /// Parse errors propagate as `Err`. This is the historical
+    /// behaviour of [`render`] / [`render_with_options`] and is
+    /// the default for every existing caller.
+    #[default]
+    Strict,
+    /// Parse errors render as an inline SVG warning box and `Ok`
+    /// is returned. Use this when a single malformed diagram in a
+    /// long document should not fail the whole page render (e.g.
+    /// a CMS serving user-authored Mermaid fenced blocks).
+    Lenient,
+}
 
 /// Options for the high-level `render` function.
 #[derive(Debug, Clone)]
@@ -126,6 +145,8 @@ pub struct RenderOptions {
     pub theme: Theme,
     /// Layout configuration (spacing, etc.).
     pub layout: LayoutConfig,
+    /// How to surface parse errors. Defaults to [`RenderMode::Strict`].
+    pub mode: RenderMode,
 }
 
 impl Default for RenderOptions {
@@ -133,6 +154,7 @@ impl Default for RenderOptions {
         Self {
             theme: Theme::modern(),
             layout: LayoutConfig::default(),
+            mode: RenderMode::Strict,
         }
     }
 }
@@ -148,7 +170,16 @@ impl RenderOptions {
         Self {
             theme: Theme::mermaid_default(),
             layout: LayoutConfig::default(),
+            mode: RenderMode::Strict,
         }
+    }
+
+    /// Set the render mode. `Strict` (the default) preserves
+    /// historical behaviour; `Lenient` opts in to warning-box
+    /// rendering for parse errors (Feature f160f).
+    pub fn with_mode(mut self, mode: RenderMode) -> Self {
+        self.mode = mode;
+        self
     }
 
     /// Set custom node spacing.
@@ -218,7 +249,41 @@ pub fn render(input: &str) -> anyhow::Result<String> {
 /// let svg = render_with_options("flowchart LR; A-->B", opts).unwrap();
 /// ```
 pub fn render_with_options(input: &str, options: RenderOptions) -> anyhow::Result<String> {
-    render_strict(input, options).map_err(Into::into)
+    render_with_mode(input, options)
+}
+
+/// Render honoring [`RenderOptions::mode`].
+///
+/// - [`RenderMode::Strict`]: identical behaviour to
+///   [`render_with_options`] before Feature f160f -- parse errors
+///   propagate as `Err`.
+/// - [`RenderMode::Lenient`]: parse errors render as an inline SVG
+///   warning box and `Ok(svg)` is returned. The warning SVG
+///   contains the parse diagnostic and the original source, so it
+///   is self-contained and safe to splice into a larger page.
+///
+/// Layout / render panics are not caught here; callers that need
+/// panic safety should wrap the call in [`std::panic::catch_unwind`].
+///
+/// # Errors
+///
+/// Returns the typed parse error (converted to `anyhow::Error`)
+/// only when `options.mode == RenderMode::Strict`. In lenient mode,
+/// this function never returns `Err` for valid UTF-8 input unless
+/// a downstream layout or render stage panics (in which case the
+/// caller sees the panic, not a returned error).
+pub fn render_with_mode(input: &str, options: RenderOptions) -> anyhow::Result<String> {
+    match validator::validate(input) {
+        Ok(()) => {
+            let parsed = parse_mermaid(input)?;
+            let layout = compute_layout(&parsed.graph, &options.theme, &options.layout);
+            Ok(render_svg(&layout, &options.theme, &options.layout))
+        }
+        Err(err) => match options.mode {
+            RenderMode::Strict => Err(err.into()),
+            RenderMode::Lenient => Ok(render_warning_box(input, &err, &options)),
+        },
+    }
 }
 
 /// Parse a Mermaid diagram, surfacing typed [`ParseError`]
