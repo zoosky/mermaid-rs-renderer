@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use crate::config::LayoutConfig;
 use crate::ir::{DiagramKind, Direction, Graph};
@@ -6,13 +6,10 @@ use crate::ir::{DiagramKind, Direction, Graph};
 use super::super::label_placement;
 use super::super::routing::{
     EdgePortInfo, Obstacle, anchor_point_for_node, compress_path, edge_label_anchor_from_points,
-    edge_pair_key, insert_label_via_point, is_horizontal, path_length, path_point_at_progress,
+    insert_label_via_point, is_horizontal, path_length, path_point_at_progress,
     segment_intersects_rect,
 };
-use super::super::{
-    FLOWCHART_PORT_ROUTE_BIAS_MAX_RATIO, FLOWCHART_PORT_ROUTE_BIAS_RATIO, MULTI_EDGE_OFFSET_RATIO,
-    NodeLayout, SubgraphLayout, TextBlock, anchor_layout_for_edge,
-};
+use super::super::{NodeLayout, SubgraphLayout, TextBlock, anchor_layout_for_edge};
 
 #[derive(Clone)]
 pub(super) struct RouteLabelPlan {
@@ -39,9 +36,8 @@ struct ProvisionalRouteLabelCenterContext<'a> {
     nodes: &'a BTreeMap<String, NodeLayout>,
     subgraphs: &'a [SubgraphLayout],
     edge_ports: &'a [EdgePortInfo],
-    pair_counts: &'a HashMap<(String, String), usize>,
     pair_index: &'a [usize],
-    cross_edge_offsets: &'a [f32],
+    lane_offsets: &'a [f32],
     edge_label_pad_x: f32,
     edge_label_pad_y: f32,
     config: &'a LayoutConfig,
@@ -74,9 +70,8 @@ pub(super) fn initialize_route_label_plans(
     nodes: &BTreeMap<String, NodeLayout>,
     subgraphs: &[SubgraphLayout],
     edge_ports: &[EdgePortInfo],
-    pair_counts: &HashMap<(String, String), usize>,
     pair_index: &[usize],
-    cross_edge_offsets: &[f32],
+    lane_offsets: &[f32],
     edge_route_labels: &[Option<TextBlock>],
     label_obstacles: Vec<Obstacle>,
     config: &LayoutConfig,
@@ -111,9 +106,8 @@ pub(super) fn initialize_route_label_plans(
                 nodes,
                 subgraphs,
                 edge_ports,
-                pair_counts,
                 pair_index,
-                cross_edge_offsets,
+                lane_offsets,
                 edge_label_pad_x,
                 edge_label_pad_y,
                 config,
@@ -169,20 +163,7 @@ fn provisional_route_label_center(
     let start = anchor_point_for_node(from, port_info.start_side, port_info.start_offset);
     let end = anchor_point_for_node(to, port_info.end_side, port_info.end_offset);
 
-    let key = edge_pair_key(edge);
-    let total = *ctx.pair_counts.get(&key).unwrap_or(&1) as f32;
-    let idx_in_pair = ctx.pair_index[idx] as f32;
-    let mut base_offset = if total > 1.0 {
-        (idx_in_pair - (total - 1.0) / 2.0) * (ctx.config.node_spacing * MULTI_EDGE_OFFSET_RATIO)
-    } else {
-        0.0
-    } + ctx.cross_edge_offsets[idx];
-    if graph.kind == DiagramKind::Flowchart {
-        let raw_bias =
-            (port_info.start_offset - port_info.end_offset) * FLOWCHART_PORT_ROUTE_BIAS_RATIO;
-        let max_bias = (ctx.config.node_spacing * FLOWCHART_PORT_ROUTE_BIAS_MAX_RATIO).max(8.0);
-        base_offset += raw_bias.clamp(-max_bias, max_bias);
-    }
+    let base_offset = ctx.lane_offsets.get(idx).copied().unwrap_or_default();
 
     let mut center = ((start.0 + end.0) * 0.5, (start.1 + end.1) * 0.5);
     if is_horizontal(graph.direction) {

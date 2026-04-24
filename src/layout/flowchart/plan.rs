@@ -41,7 +41,46 @@ pub(super) struct FlowchartLayoutPlan {
 pub(super) struct EdgeLaneAssignments {
     pub(super) pair_counts: HashMap<(String, String), usize>,
     pub(super) pair_index: Vec<usize>,
+    pub(super) pair_total: Vec<usize>,
     pub(super) cross_edge_offsets: Vec<f32>,
+}
+
+impl EdgeLaneAssignments {
+    pub(super) fn effective_offsets(
+        &self,
+        edge_ports: &[EdgePortInfo],
+        kind: DiagramKind,
+        config: &LayoutConfig,
+    ) -> Vec<f32> {
+        edge_ports
+            .iter()
+            .enumerate()
+            .map(|(idx, port_info)| {
+                let total = self.pair_total.get(idx).copied().unwrap_or(1);
+                let lane_index = self.pair_index.get(idx).copied().unwrap_or_default();
+                let base_offset = if total > 1 {
+                    (lane_index as f32 - (total as f32 - 1.0) / 2.0)
+                        * (config.node_spacing * MULTI_EDGE_OFFSET_RATIO)
+                } else {
+                    0.0
+                };
+                let cross_edge_offset = self
+                    .cross_edge_offsets
+                    .get(idx)
+                    .copied()
+                    .unwrap_or_default();
+                let mut offset = base_offset + cross_edge_offset;
+                if kind == DiagramKind::Flowchart {
+                    let raw_bias = (port_info.start_offset - port_info.end_offset)
+                        * FLOWCHART_PORT_ROUTE_BIAS_RATIO;
+                    let max_bias =
+                        (config.node_spacing * FLOWCHART_PORT_ROUTE_BIAS_MAX_RATIO).max(8.0);
+                    offset += raw_bias.clamp(-max_bias, max_bias);
+                }
+                offset
+            })
+            .collect()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -232,8 +271,10 @@ pub(super) fn plan_edge_lanes(
     let pair_counts = build_edge_pair_counts(&graph.edges);
     let mut pair_seen: HashMap<(String, String), usize> = HashMap::new();
     let mut pair_index: Vec<usize> = vec![0; graph.edges.len()];
+    let mut pair_total: Vec<usize> = vec![1; graph.edges.len()];
     for (idx, edge) in graph.edges.iter().enumerate() {
         let key = edge_pair_key(edge);
+        pair_total[idx] = *pair_counts.get(&key).unwrap_or(&1);
         let seen = pair_seen.entry(key).or_insert(0usize);
         pair_index[idx] = *seen;
         *seen += 1;
@@ -306,6 +347,7 @@ pub(super) fn plan_edge_lanes(
     EdgeLaneAssignments {
         pair_counts,
         pair_index,
+        pair_total,
         cross_edge_offsets,
     }
 }

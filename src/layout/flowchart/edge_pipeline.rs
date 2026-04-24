@@ -9,9 +9,8 @@ use super::super::label_placement;
 use super::super::routing::*;
 use super::super::{
     EDGE_OCCUPANCY_CELL_RATIO, EdgeLayout, FLOWCHART_EDGE_LABEL_WRAP_TRIGGER_CHARS,
-    FLOWCHART_PORT_ROUTE_BIAS_MAX_RATIO, FLOWCHART_PORT_ROUTE_BIAS_RATIO, LayoutStageMetrics,
-    MIN_NODE_SPACING_FLOOR, MULTI_EDGE_OFFSET_RATIO, NodeLayout, SubgraphLayout, TextBlock,
-    anchor_layout_for_edge,
+    LayoutStageMetrics, MIN_NODE_SPACING_FLOOR, MULTI_EDGE_OFFSET_RATIO, NodeLayout,
+    SubgraphLayout, TextBlock, anchor_layout_for_edge,
 };
 use super::plan;
 use super::post_route;
@@ -417,6 +416,7 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
 
     let edge_routing_start = Instant::now();
     let lane_assignments = plan::plan_edge_lanes(graph, nodes, subgraphs, config);
+    let lane_offsets = lane_assignments.effective_offsets(&edge_ports, graph.kind, config);
     let pair_counts = lane_assignments.pair_counts;
     let pair_index = lane_assignments.pair_index;
     let cross_edge_offsets = lane_assignments.cross_edge_offsets;
@@ -543,9 +543,8 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
             nodes,
             subgraphs,
             &edge_ports,
-            &pair_counts,
             &pair_index,
-            &cross_edge_offsets,
+            &lane_offsets,
             edge_route_labels,
             label_obstacles,
             config,
@@ -557,11 +556,14 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
         let key = edge_pair_key(edge);
         let total = *pair_counts.get(&key).unwrap_or(&1) as f32;
         let idx_in_pair = pair_index[*idx] as f32;
-        let mut base_offset = if total > 1.0 {
+        let base_offset = if graph.kind == DiagramKind::Flowchart {
+            lane_offsets.get(*idx).copied().unwrap_or_default()
+        } else if total > 1.0 {
             (idx_in_pair - (total - 1.0) / 2.0) * (config.node_spacing * MULTI_EDGE_OFFSET_RATIO)
+                + cross_edge_offsets[*idx]
         } else {
-            0.0
-        } + cross_edge_offsets[*idx];
+            cross_edge_offsets[*idx]
+        };
         let from_layout = nodes.get(&edge.from).expect("from node missing");
         let to_layout = nodes.get(&edge.to).expect("to node missing");
         let temp_from = from_layout.anchor_subgraph.and_then(|idx| {
@@ -580,12 +582,6 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
             .get(*idx)
             .copied()
             .expect("edge port info missing");
-        if graph.kind == DiagramKind::Flowchart {
-            let raw_bias =
-                (port_info.start_offset - port_info.end_offset) * FLOWCHART_PORT_ROUTE_BIAS_RATIO;
-            let max_bias = (config.node_spacing * FLOWCHART_PORT_ROUTE_BIAS_MAX_RATIO).max(8.0);
-            base_offset += raw_bias.clamp(-max_bias, max_bias);
-        }
         let default_stub = port_stub_length(config, from, to);
         let stub_len = match graph.kind {
             DiagramKind::Class | DiagramKind::Er | DiagramKind::Requirement => 0.0,
