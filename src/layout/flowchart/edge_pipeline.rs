@@ -416,79 +416,10 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
     }
 
     let edge_routing_start = Instant::now();
-    let pair_counts = build_edge_pair_counts(&graph.edges);
-    let mut pair_seen: HashMap<(String, String), usize> = HashMap::new();
-    let mut pair_index: Vec<usize> = vec![0; graph.edges.len()];
-    for (idx, edge) in graph.edges.iter().enumerate() {
-        let key = edge_pair_key(edge);
-        let seen = pair_seen.entry(key).or_insert(0usize);
-        pair_index[idx] = *seen;
-        *seen += 1;
-    }
-
-    let mut cross_edge_offsets = vec![0.0f32; graph.edges.len()];
-    if graph.kind == DiagramKind::Flowchart {
-        let is_horizontal_layout = is_horizontal(graph.direction);
-        let band_size = (config.node_spacing * 2.0).max(30.0);
-        let mut groups: HashMap<i32, Vec<(usize, f32)>> = HashMap::new();
-        for (idx, edge) in graph.edges.iter().enumerate() {
-            let from_layout = nodes.get(&edge.from).expect("from node missing");
-            let to_layout = nodes.get(&edge.to).expect("to node missing");
-            let temp_from = from_layout.anchor_subgraph.and_then(|idx| {
-                subgraphs
-                    .get(idx)
-                    .map(|sub| anchor_layout_for_edge(from_layout, sub, graph.direction, true))
-            });
-            let temp_to = to_layout.anchor_subgraph.and_then(|idx| {
-                subgraphs
-                    .get(idx)
-                    .map(|sub| anchor_layout_for_edge(to_layout, sub, graph.direction, false))
-            });
-            let from = temp_from.as_ref().unwrap_or(from_layout);
-            let to = temp_to.as_ref().unwrap_or(to_layout);
-            let from_center = (from.x + from.width / 2.0, from.y + from.height / 2.0);
-            let to_center = (to.x + to.width / 2.0, to.y + to.height / 2.0);
-            let dx = to_center.0 - from_center.0;
-            let dy = to_center.1 - from_center.1;
-            let cross_axis = if is_horizontal_layout {
-                dy.abs()
-            } else {
-                dx.abs()
-            };
-            let main_axis = if is_horizontal_layout {
-                dx.abs()
-            } else {
-                dy.abs()
-            };
-            let is_secondary = edge.style == crate::ir::EdgeStyle::Dotted || edge.label.is_some();
-            if !is_secondary || cross_axis <= main_axis * 1.2 {
-                continue;
-            }
-            let band_coord = if is_horizontal_layout {
-                (from_center.0 + to_center.0) * 0.5
-            } else {
-                (from_center.1 + to_center.1) * 0.5
-            };
-            let bucket = (band_coord / band_size).round() as i32;
-            let sort_key = if is_horizontal_layout {
-                (from_center.1 + to_center.1) * 0.5
-            } else {
-                (from_center.0 + to_center.0) * 0.5
-            };
-            groups.entry(bucket).or_default().push((idx, sort_key));
-        }
-        let spacing = (config.node_spacing * 0.45).max(8.0);
-        for (_bucket, mut group) in groups {
-            if group.len() <= 1 {
-                continue;
-            }
-            group.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
-            let center = (group.len() as f32 - 1.0) * 0.5;
-            for (pos, (idx, _)) in group.iter().enumerate() {
-                cross_edge_offsets[*idx] = (pos as f32 - center) * spacing;
-            }
-        }
-    }
+    let lane_assignments = plan::plan_edge_lanes(graph, nodes, subgraphs, config);
+    let pair_counts = lane_assignments.pair_counts;
+    let pair_index = lane_assignments.pair_index;
+    let cross_edge_offsets = lane_assignments.cross_edge_offsets;
 
     let mut route_order: Vec<(u8, f32, f32, usize)> = Vec::with_capacity(graph.edges.len());
     let dense_flowchart_routing = graph.kind == DiagramKind::Flowchart

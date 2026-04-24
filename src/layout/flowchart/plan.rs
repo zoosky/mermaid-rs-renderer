@@ -7,13 +7,15 @@
 //! changing output.  Later phases can move bundle, route, and label decisions
 //! into this model one stage at a time.
 
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 
 use crate::config::LayoutConfig;
-use crate::ir::Graph;
+use crate::ir::{DiagramKind, Graph};
 
 use super::super::routing::{
-    EdgePortInfo, EdgeSide, anchor_point_for_node, edge_pair_key, port_stub_length,
+    EdgePortInfo, EdgeSide, anchor_point_for_node, build_edge_pair_counts, edge_pair_key,
+    is_horizontal, port_stub_length,
 };
 use super::super::{
     FLOWCHART_PORT_ROUTE_BIAS_MAX_RATIO, FLOWCHART_PORT_ROUTE_BIAS_RATIO, MULTI_EDGE_OFFSET_RATIO,
@@ -33,6 +35,13 @@ pub(super) struct FlowchartLayoutPlan {
     pub(super) bundles: Vec<EdgeBundlePlan>,
     pub(super) routes: Vec<EdgeRoutePlan>,
     pub(super) labels: Vec<EdgeLabelPlan>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct EdgeLaneAssignments {
+    pub(super) pair_counts: HashMap<(String, String), usize>,
+    pub(super) pair_index: Vec<usize>,
+    pub(super) cross_edge_offsets: Vec<f32>,
 }
 
 #[derive(Clone, Debug)]
@@ -214,13 +223,100 @@ impl FlowchartLayoutPlan {
     }
 }
 
+pub(super) fn plan_edge_lanes(
+    graph: &Graph,
+    nodes: &BTreeMap<String, NodeLayout>,
+    subgraphs: &[SubgraphLayout],
+    config: &LayoutConfig,
+) -> EdgeLaneAssignments {
+    let pair_counts = build_edge_pair_counts(&graph.edges);
+    let mut pair_seen: HashMap<(String, String), usize> = HashMap::new();
+    let mut pair_index: Vec<usize> = vec![0; graph.edges.len()];
+    for (idx, edge) in graph.edges.iter().enumerate() {
+        let key = edge_pair_key(edge);
+        let seen = pair_seen.entry(key).or_insert(0usize);
+        pair_index[idx] = *seen;
+        *seen += 1;
+    }
+
+    let mut cross_edge_offsets = vec![0.0f32; graph.edges.len()];
+    if graph.kind == DiagramKind::Flowchart {
+        let is_horizontal_layout = is_horizontal(graph.direction);
+        let band_size = (config.node_spacing * 2.0).max(30.0);
+        let mut groups: HashMap<i32, Vec<(usize, f32)>> = HashMap::new();
+        for (idx, edge) in graph.edges.iter().enumerate() {
+            let from_layout = nodes.get(&edge.from).expect("from node missing");
+            let to_layout = nodes.get(&edge.to).expect("to node missing");
+            let temp_from = from_layout.anchor_subgraph.and_then(|anchor_idx| {
+                subgraphs
+                    .get(anchor_idx)
+                    .map(|sub| anchor_layout_for_edge(from_layout, sub, graph.direction, true))
+            });
+            let temp_to = to_layout.anchor_subgraph.and_then(|anchor_idx| {
+                subgraphs
+                    .get(anchor_idx)
+                    .map(|sub| anchor_layout_for_edge(to_layout, sub, graph.direction, false))
+            });
+            let from = temp_from.as_ref().unwrap_or(from_layout);
+            let to = temp_to.as_ref().unwrap_or(to_layout);
+            let from_center = (from.x + from.width / 2.0, from.y + from.height / 2.0);
+            let to_center = (to.x + to.width / 2.0, to.y + to.height / 2.0);
+            let dx = to_center.0 - from_center.0;
+            let dy = to_center.1 - from_center.1;
+            let cross_axis = if is_horizontal_layout {
+                dy.abs()
+            } else {
+                dx.abs()
+            };
+            let main_axis = if is_horizontal_layout {
+                dx.abs()
+            } else {
+                dy.abs()
+            };
+            let is_secondary = edge.style == crate::ir::EdgeStyle::Dotted || edge.label.is_some();
+            if !is_secondary || cross_axis <= main_axis * 1.2 {
+                continue;
+            }
+            let band_coord = if is_horizontal_layout {
+                (from_center.0 + to_center.0) * 0.5
+            } else {
+                (from_center.1 + to_center.1) * 0.5
+            };
+            let bucket = (band_coord / band_size).round() as i32;
+            let sort_key = if is_horizontal_layout {
+                (from_center.1 + to_center.1) * 0.5
+            } else {
+                (from_center.0 + to_center.0) * 0.5
+            };
+            groups.entry(bucket).or_default().push((idx, sort_key));
+        }
+        let spacing = (config.node_spacing * 0.45).max(8.0);
+        for (_bucket, mut group) in groups {
+            if group.len() <= 1 {
+                continue;
+            }
+            group.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
+            let center = (group.len() as f32 - 1.0) * 0.5;
+            for (pos, (idx, _)) in group.iter().enumerate() {
+                cross_edge_offsets[*idx] = (pos as f32 - center) * spacing;
+            }
+        }
+    }
+
+    EdgeLaneAssignments {
+        pair_counts,
+        pair_index,
+        cross_edge_offsets,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, HashMap};
 
     use crate::config::LayoutConfig;
     use crate::ir::{Direction, Edge, EdgeStyle, Graph, NodeShape};
-    use crate::layout::flowchart::plan::FlowchartLayoutPlan;
+    use crate::layout::flowchart::plan::{FlowchartLayoutPlan, plan_edge_lanes};
     use crate::layout::routing::{EdgePortInfo, EdgeSide};
     use crate::layout::{NodeLayout, TextBlock};
 
@@ -317,5 +413,36 @@ mod tests {
         assert!(
             plan.bundles[0].lanes[0].effective_offset < plan.bundles[0].lanes[1].effective_offset
         );
+    }
+
+    #[test]
+    fn lane_planner_assigns_stable_pair_indices() {
+        let mut graph = Graph::new();
+        graph.direction = Direction::LeftRight;
+        graph.edges.push(edge("A", "B"));
+        graph.edges.push(edge("B", "A"));
+        graph.edges.push(edge("A", "C"));
+
+        let mut nodes = BTreeMap::new();
+        nodes.insert("A".to_string(), node("A", 0.0, 0.0));
+        nodes.insert("B".to_string(), node("B", 160.0, 0.0));
+        nodes.insert("C".to_string(), node("C", 320.0, 0.0));
+
+        let assignments = plan_edge_lanes(&graph, &nodes, &[], &LayoutConfig::default());
+
+        assert_eq!(
+            assignments
+                .pair_counts
+                .get(&("A".to_string(), "B".to_string())),
+            Some(&2)
+        );
+        assert_eq!(
+            assignments
+                .pair_counts
+                .get(&("A".to_string(), "C".to_string())),
+            Some(&1)
+        );
+        assert_eq!(assignments.pair_index, vec![0, 1, 0]);
+        assert_eq!(assignments.cross_edge_offsets, vec![0.0, 0.0, 0.0]);
     }
 }
