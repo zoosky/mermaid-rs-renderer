@@ -5961,11 +5961,7 @@ fn shape_svg(node: &crate::layout::NodeLayout, theme: &Theme, config: &LayoutCon
             )
         }
         crate::ir::NodeShape::MindmapDefault => {
-            let rd = config
-                .mindmap
-                .default_corner_radius
-                .max(theme.font_size * 0.55)
-                .max(4.0);
+            let rd = config.mindmap.default_corner_radius.max(0.0);
             let inner_h = (h - 2.0 * rd).max(0.0);
             let inner_w = (w - 2.0 * rd).max(0.0);
             let rect_path = format!(
@@ -6192,6 +6188,54 @@ mod tests {
         theme.font_family = "   ".to_string();
         let svg = render_svg(&layout, &theme, &LayoutConfig::default());
         assert!(svg.contains("font-family=\"sans-serif\""));
+    }
+
+    #[test]
+    fn default_theme_keeps_emoji_font_fallbacks_in_svg() {
+        let mut graph = Graph::new();
+        graph.direction = Direction::LeftRight;
+        graph.ensure_node(
+            "A",
+            Some("🎉 Yes it does!".to_string()),
+            Some(crate::ir::NodeShape::Rectangle),
+        );
+
+        let theme = Theme::mermaid_default();
+        let layout = compute_layout(&graph, &theme, &LayoutConfig::default());
+        let svg = render_svg(&layout, &theme, &LayoutConfig::default());
+
+        assert!(svg.contains("Noto Color Emoji"));
+        assert!(svg.contains("Apple Color Emoji"));
+        assert!(svg.contains("Segoe UI Emoji"));
+    }
+
+    #[test]
+    fn mindmap_default_shape_honors_zero_corner_radius() {
+        let node = crate::layout::NodeLayout {
+            id: "mindmap-child".to_string(),
+            x: 10.0,
+            y: 20.0,
+            width: 120.0,
+            height: 40.0,
+            label: crate::layout::TextBlock {
+                lines: vec!["A".to_string()],
+                width: 8.0,
+                height: 16.0,
+            },
+            shape: crate::ir::NodeShape::MindmapDefault,
+            style: crate::ir::NodeStyle::default(),
+            link: None,
+            anchor_subgraph: None,
+            hidden: false,
+            icon: None,
+        };
+        let mut config = LayoutConfig::default();
+        config.mindmap.default_corner_radius = 0.0;
+
+        let svg = shape_svg(&node, &Theme::modern(), &config);
+
+        assert!(svg.contains("q0,-0.00 0.00,-0.00"));
+        assert!(svg.contains("h120.00"));
     }
 
     #[cfg(feature = "png")]

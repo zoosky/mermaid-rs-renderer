@@ -84,7 +84,7 @@ impl Theme {
         let tertiary_color = "#ECECFF".to_string();
         let pie_colors = default_pie_colors(&primary_color, &secondary_color, &tertiary_color);
         Self {
-            font_family: "'trebuchet ms', verdana, arial, sans-serif".to_string(),
+            font_family: "'trebuchet ms', verdana, arial, \"Noto Color Emoji\", \"Apple Color Emoji\", \"Segoe UI Emoji\", sans-serif".to_string(),
             font_size: 16.0,
             primary_color,
             primary_text_color: "#333333".to_string(),
@@ -133,7 +133,7 @@ impl Theme {
         let tertiary_color = "#FFFFFF".to_string();
         let pie_colors = default_pie_colors(&primary_color, &secondary_color, &tertiary_color);
         Self {
-            font_family: "Inter, ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif"
+            font_family: "Inter, ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", \"Noto Color Emoji\", \"Apple Color Emoji\", \"Segoe UI Emoji\", sans-serif"
                 .to_string(),
             font_size: 14.0,
             primary_color,

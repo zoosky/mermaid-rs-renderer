@@ -1178,14 +1178,22 @@ struct MindmapConfigFile {
     rect_padding: Option<f32>,
     circle_padding: Option<f32>,
     hexagon_padding_multiplier: Option<f32>,
+    #[serde(alias = "default_corner_radius")]
     default_corner_radius: Option<f32>,
+    #[serde(alias = "edge_depth_base_width")]
     edge_depth_base_width: Option<f32>,
+    #[serde(alias = "edge_depth_step")]
     edge_depth_step: Option<f32>,
     divider_line_width: Option<f32>,
+    #[serde(alias = "section_colors")]
     section_colors: Option<Vec<String>>,
+    #[serde(alias = "section_label_colors")]
     section_label_colors: Option<Vec<String>>,
+    #[serde(alias = "section_line_colors")]
     section_line_colors: Option<Vec<String>>,
+    #[serde(alias = "root_fill")]
     root_fill: Option<String>,
+    #[serde(alias = "root_text")]
     root_text: Option<String>,
 }
 
@@ -2762,4 +2770,44 @@ pub fn load_config(path: Option<&Path>) -> anyhow::Result<Config> {
     config.render.background = config.theme.background.clone();
 
     Ok(config)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mindmap_config_accepts_documented_snake_case_keys() {
+        let parsed: ConfigFile = serde_json::from_str(
+            r##"{
+                "mindmap": {
+                    "default_corner_radius": 0,
+                    "edge_depth_base_width": 3,
+                    "edge_depth_step": 0,
+                    "section_colors": ["#111111"],
+                    "section_label_colors": ["#222222"],
+                    "section_line_colors": ["#333333"],
+                    "root_fill": "#444444",
+                    "root_text": "#555555"
+                }
+            }"##,
+        )
+        .expect("snake_case mindmap config should parse");
+        let mindmap = parsed.mindmap.expect("mindmap config");
+
+        assert_eq!(mindmap.default_corner_radius, Some(0.0));
+        assert_eq!(mindmap.edge_depth_base_width, Some(3.0));
+        assert_eq!(mindmap.edge_depth_step, Some(0.0));
+        assert_eq!(mindmap.section_colors, Some(vec!["#111111".to_string()]));
+        assert_eq!(
+            mindmap.section_label_colors,
+            Some(vec!["#222222".to_string()])
+        );
+        assert_eq!(
+            mindmap.section_line_colors,
+            Some(vec!["#333333".to_string()])
+        );
+        assert_eq!(mindmap.root_fill, Some("#444444".to_string()));
+        assert_eq!(mindmap.root_text, Some("#555555".to_string()));
+    }
 }
