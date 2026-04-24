@@ -541,7 +541,6 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
     }
 
     let overlay_flowchart = layout.kind == crate::ir::DiagramKind::Flowchart;
-    let mut overlay_arrows: Vec<(bool, (f32, f32), f32, String, f32)> = Vec::new();
 
     if let Some(seq) = seq_data {
         for seq_box in &seq.boxes {
@@ -1039,13 +1038,23 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
                     && let Some(point) = edge.points.first().copied()
                 {
                     let angle = edge_endpoint_angle(&edge.points, true);
-                    overlay_arrows.push((true, point, angle, stroke.clone(), stroke_width));
+                    let angle = layout
+                        .nodes
+                        .get(&edge.from)
+                        .and_then(|node| flowchart_endpoint_arrow_angle(point, node))
+                        .unwrap_or(angle + 180.0);
+                    svg.push_str(&arrowhead_svg(point, angle, stroke.as_str(), stroke_width));
                 }
                 if edge.arrow_end
                     && let Some(point) = edge.points.last().copied()
                 {
                     let angle = edge_endpoint_angle(&edge.points, false);
-                    overlay_arrows.push((false, point, angle, stroke.clone(), stroke_width));
+                    let angle = layout
+                        .nodes
+                        .get(&edge.to)
+                        .and_then(|node| flowchart_endpoint_arrow_angle(point, node))
+                        .unwrap_or(angle);
+                    svg.push_str(&arrowhead_svg(point, angle, stroke.as_str(), stroke_width));
                 }
             }
 
@@ -1408,18 +1417,6 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
             }
             if node.link.is_some() {
                 svg.push_str("</a>");
-            }
-        }
-
-        if overlay_flowchart && !overlay_arrows.is_empty() {
-            for (is_start, point, angle, stroke, stroke_width) in overlay_arrows {
-                let final_angle = if is_start { angle + 180.0 } else { angle };
-                svg.push_str(&arrowhead_svg(
-                    point,
-                    final_angle,
-                    stroke.as_str(),
-                    stroke_width,
-                ));
             }
         }
 
@@ -5619,6 +5616,25 @@ fn arrowhead_svg(point: (f32, f32), angle_deg: f32, stroke: &str, stroke_width: 
     )
 }
 
+fn flowchart_endpoint_arrow_angle(
+    point: (f32, f32),
+    node: &crate::layout::NodeLayout,
+) -> Option<f32> {
+    if node.hidden {
+        return None;
+    }
+    let left = (point.0 - node.x).abs();
+    let right = (point.0 - (node.x + node.width)).abs();
+    let top = (point.1 - node.y).abs();
+    let bottom = (point.1 - (node.y + node.height)).abs();
+    let (dist, angle) = [(left, 0.0), (right, 180.0), (top, 90.0), (bottom, -90.0)]
+        .into_iter()
+        .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal))?;
+
+    let tolerance = node.width.max(node.height).max(1.0) * 0.25;
+    (dist <= tolerance).then_some(angle)
+}
+
 fn edge_endpoint_angle(points: &[(f32, f32)], start: bool) -> f32 {
     if points.len() < 2 {
         return 0.0;
@@ -6160,6 +6176,45 @@ mod tests {
             &points,
             near
         ));
+    }
+
+    #[test]
+    fn flowchart_endpoint_arrow_angle_points_from_attached_node_side() {
+        let node = crate::layout::NodeLayout {
+            id: "A".to_string(),
+            x: 10.0,
+            y: 20.0,
+            width: 100.0,
+            height: 60.0,
+            label: crate::layout::TextBlock {
+                lines: vec!["A".to_string()],
+                width: 10.0,
+                height: 10.0,
+            },
+            shape: crate::ir::NodeShape::Rectangle,
+            style: crate::ir::NodeStyle::default(),
+            link: None,
+            anchor_subgraph: None,
+            hidden: false,
+            icon: None,
+        };
+
+        assert_eq!(
+            flowchart_endpoint_arrow_angle((10.0, 50.0), &node),
+            Some(0.0)
+        );
+        assert_eq!(
+            flowchart_endpoint_arrow_angle((110.0, 50.0), &node),
+            Some(180.0)
+        );
+        assert_eq!(
+            flowchart_endpoint_arrow_angle((60.0, 20.0), &node),
+            Some(90.0)
+        );
+        assert_eq!(
+            flowchart_endpoint_arrow_angle((60.0, 80.0), &node),
+            Some(-90.0)
+        );
     }
 
     #[test]
