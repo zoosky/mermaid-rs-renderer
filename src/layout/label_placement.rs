@@ -1091,6 +1091,19 @@ fn deoverlap_flowchart_center_labels(
 
     // If overlaps still remain, force-separate conflicted pairs by selecting a
     // non-overlapping candidate for one side of the pair.
+    let residual_overlap = flowchart_entry_label_overlap_score(&entries, label_pad_x, label_pad_y);
+    let duplicate_label_count = flowchart_duplicate_center_label_count(edges, &entries);
+    let use_pair_separation_candidates = entries
+        .iter()
+        .filter(|entry| {
+            let (span_x, span_y) = flowchart_path_span(&entry.edge_points);
+            span_x >= span_y
+        })
+        .count()
+        * 2
+        >= entries.len()
+        && duplicate_label_count >= 3
+        && residual_overlap.total >= 1_800.0;
     for _ in 0..6 {
         let current_rects: Vec<Rect> = entries
             .iter()
@@ -1114,6 +1127,19 @@ fn deoverlap_flowchart_center_labels(
                 }
                 for &move_idx in &[i, j] {
                     let entry_snapshot = entries[move_idx].clone();
+                    let blocking_rect = current_rects[if move_idx == i { j } else { i }];
+                    let mut candidate_centers = entry_snapshot.candidates.clone();
+                    if use_pair_separation_candidates {
+                        for center in flowchart_pair_separation_candidates(
+                            &entry_snapshot,
+                            blocking_rect,
+                            label_pad_x,
+                            label_pad_y,
+                            bounds,
+                        ) {
+                            push_center_unique(&mut candidate_centers, center);
+                        }
+                    }
                     let others: Vec<Rect> = current_rects
                         .iter()
                         .enumerate()
@@ -1127,7 +1153,7 @@ fn deoverlap_flowchart_center_labels(
                                         enforce_center_band: bool|
                      -> bool {
                         let mut considered = false;
-                        for candidate in entry_snapshot.candidates.iter().copied() {
+                        for candidate in candidate_centers.iter().copied() {
                             if enforce_center_band {
                                 let center_dist =
                                     point_polyline_distance(candidate, &entry_snapshot.edge_points);
@@ -1199,7 +1225,21 @@ fn deoverlap_flowchart_center_labels(
                         considered
                     };
                     let considered_strict = evaluate(true, true, true);
-                    if !considered_strict {
+                    if !considered_strict && use_pair_separation_candidates {
+                        let considered_no_overlap_center_relaxed = evaluate(true, true, false);
+                        if !considered_no_overlap_center_relaxed {
+                            let considered_no_overlap_gap_relaxed = evaluate(false, true, false);
+                            if !considered_no_overlap_gap_relaxed {
+                                let considered_soft = evaluate(true, false, true);
+                                if !considered_soft {
+                                    let considered_center_relaxed = evaluate(true, false, false);
+                                    if !considered_center_relaxed {
+                                        let _ = evaluate(false, false, false);
+                                    }
+                                }
+                            }
+                        }
+                    } else if !considered_strict {
                         let considered_soft = evaluate(true, false, true);
                         if !considered_soft {
                             let considered_center_relaxed = evaluate(true, false, false);
@@ -2432,6 +2472,121 @@ fn push_center_unique(centers: &mut Vec<(f32, f32)>, candidate: (f32, f32)) {
     if !duplicate {
         centers.push(candidate);
     }
+}
+
+fn flowchart_path_span(points: &[(f32, f32)]) -> (f32, f32) {
+    if points.is_empty() {
+        return (0.0, 0.0);
+    }
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    for &(x, y) in points {
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    }
+    ((max_x - min_x).max(0.0), (max_y - min_y).max(0.0))
+}
+
+fn flowchart_entry_label_overlap_score(
+    entries: &[FlowchartCenterLabelEntry],
+    label_pad_x: f32,
+    label_pad_y: f32,
+) -> CenterLabelOverlapScore {
+    let rects: Vec<Rect> = entries
+        .iter()
+        .map(|entry| {
+            flowchart_center_label_rect(
+                entry.current_center,
+                entry.label_w,
+                entry.label_h,
+                label_pad_x,
+                label_pad_y,
+            )
+        })
+        .collect();
+    let mut count = 0;
+    let mut total = 0.0f32;
+    let mut max = 0.0f32;
+    for i in 0..rects.len() {
+        for j in (i + 1)..rects.len() {
+            let overlap = overlap_area(&rects[i], &rects[j]);
+            if overlap > LABEL_OVERLAP_WIDE_THRESHOLD {
+                count += 1;
+                total += overlap;
+                max = max.max(overlap);
+            }
+        }
+    }
+    CenterLabelOverlapScore { count, total, max }
+}
+
+fn flowchart_duplicate_center_label_count(
+    edges: &[EdgeLayout],
+    entries: &[FlowchartCenterLabelEntry],
+) -> usize {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for entry in entries {
+        let Some(label) = edges
+            .get(entry.edge_idx)
+            .and_then(|edge| edge.label.as_ref())
+        else {
+            continue;
+        };
+        let key = label.lines.join("\n");
+        if key.trim().is_empty() {
+            continue;
+        }
+        *counts.entry(key).or_insert(0) += 1;
+    }
+    counts.values().copied().max().unwrap_or(0)
+}
+
+fn flowchart_pair_separation_candidates(
+    entry: &FlowchartCenterLabelEntry,
+    blocking_rect: Rect,
+    label_pad_x: f32,
+    label_pad_y: f32,
+    bounds: Option<(f32, f32)>,
+) -> Vec<(f32, f32)> {
+    let mut candidates = Vec::new();
+    let obstacle_half_w = entry.label_w * 0.5 + label_pad_x + FLOWCHART_LABEL_CLEARANCE_PAD;
+    let obstacle_half_h = entry.label_h * 0.5 + label_pad_y + FLOWCHART_LABEL_CLEARANCE_PAD;
+    let gap = 2.0;
+    let left_x = blocking_rect.0 - gap - obstacle_half_w;
+    let right_x = blocking_rect.0 + blocking_rect.2 + gap + obstacle_half_w;
+    let above_y = blocking_rect.1 - gap - obstacle_half_h;
+    let below_y = blocking_rect.1 + blocking_rect.3 + gap + obstacle_half_h;
+    let x_refs = [entry.current_center.0, entry.initial_center.0];
+    let y_refs = [entry.current_center.1, entry.initial_center.1];
+
+    let mut push_candidate = |mut center: (f32, f32)| {
+        if let Some(bound) = bounds {
+            center = clamp_label_center_to_bounds(
+                center,
+                entry.label_w,
+                entry.label_h,
+                label_pad_x,
+                label_pad_y,
+                bound,
+            );
+        }
+        push_center_unique(&mut candidates, center);
+    };
+
+    for y in y_refs {
+        push_candidate((left_x, y));
+        push_candidate((right_x, y));
+    }
+    for x in x_refs {
+        push_candidate((x, above_y));
+        push_candidate((x, below_y));
+    }
+
+    candidates
 }
 
 fn flowchart_center_label_candidates(
