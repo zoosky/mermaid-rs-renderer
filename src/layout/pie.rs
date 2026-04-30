@@ -145,7 +145,35 @@ pub(super) fn compute_pie_layout(graph: &Graph, theme: &Theme, config: &LayoutCo
     let radius = (pie_width.min(height) / 2.0 - pie_cfg.margin).max(1.0);
     let center_x = pie_width / 2.0;
     let center_y = height / 2.0;
-    let legend_x = center_x + radius + pie_cfg.margin * 0.6;
+    let suppress_outside_labels = graph.pie_slices.len() >= 4;
+    let mut right_outside_label_width: f32 = 0.0;
+    if !suppress_outside_labels {
+        for slice in &slices {
+            let span = (slice.end_angle - slice.start_angle).abs();
+            if span <= 0.0001 || total <= 0.0 {
+                continue;
+            }
+            let percent_text = format!("{:.0}%", slice.value / total * 100.0);
+            let percent_width = crate::text_metrics::measure_text_width(
+                percent_text.as_str(),
+                theme.pie_section_text_size,
+                theme.font_family.as_str(),
+            )
+            .unwrap_or(percent_text.chars().count() as f32 * theme.pie_section_text_size * 0.55);
+            let arc_len = radius * span;
+            let outside = arc_len < percent_width * 1.35 || span < 0.4;
+            let mid_angle = (slice.start_angle + slice.end_angle) / 2.0;
+            if outside && mid_angle.cos() >= 0.0 {
+                right_outside_label_width = right_outside_label_width.max(slice.label.width);
+            }
+        }
+    }
+    let outside_label_clearance = if right_outside_label_width > 0.0 {
+        right_outside_label_width + pie_cfg.margin * 0.35
+    } else {
+        0.0
+    };
+    let legend_x = center_x + radius + pie_cfg.margin * 0.6 + outside_label_clearance;
 
     for (idx, (label, color)) in legend_items.into_iter().enumerate() {
         let vertical = idx as f32 * legend_item_height - legend_offset;

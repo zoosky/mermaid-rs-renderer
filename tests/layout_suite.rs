@@ -397,6 +397,96 @@ fn render_all_fixtures() {
 }
 
 #[test]
+fn pie_outside_labels_do_not_intrude_into_right_legend() {
+    let input = r#"pie
+"Dogs" : 386
+"Cats" : 85.9
+"Rats" : 15
+"#;
+    let parsed = parse_mermaid(input).unwrap();
+    let theme = Theme::modern();
+    let config = LayoutConfig::default();
+    let layout = compute_layout(&parsed.graph, &theme, &config);
+    let DiagramData::Pie(pie) = &layout.diagram else {
+        panic!("expected pie layout");
+    };
+
+    let legend_left = pie
+        .legend
+        .iter()
+        .map(|item| item.x)
+        .fold(f32::INFINITY, f32::min);
+    let right_outside_label_right = pie
+        .slices
+        .iter()
+        .filter_map(|slice| {
+            let span = (slice.end_angle - slice.start_angle).abs();
+            let mid_angle = (slice.start_angle + slice.end_angle) / 2.0;
+            if span < 0.4 && mid_angle.cos() >= 0.0 {
+                Some(pie.center.0 + pie.radius + slice.label.width)
+            } else {
+                None
+            }
+        })
+        .fold(0.0, f32::max);
+
+    assert!(
+        legend_left > right_outside_label_right,
+        "right-side outside pie labels should have reserved space before the legend: legend_left={legend_left}, label_right={right_outside_label_right}"
+    );
+}
+
+#[test]
+fn bidirectional_flowchart_labels_do_not_overlap() {
+    let input = r#"flowchart TD
+    dep1 -->|subs| link1
+    link1 -->|sub| sub1
+    sub1 -->|deps| link1
+    link1 -->|dep| dep1
+
+    link1 -->|nextSub| link2
+    link2 -->|prevSub| link1
+
+    link2 -->|sub| sub2
+    sub2 -->|deps| link2
+"#;
+    let parsed = parse_mermaid(input).unwrap();
+    let theme = Theme::modern();
+    let config = LayoutConfig::default();
+    let layout = compute_layout(&parsed.graph, &theme, &config);
+    assert_layout_is_well_formed(&layout, "flowchart/issue63-inline.mmd");
+
+    let labels: Vec<_> = layout
+        .edges
+        .iter()
+        .filter_map(|edge| {
+            let label = edge.label.as_ref()?;
+            let anchor = edge.label_anchor?;
+            Some((
+                edge.from.as_str(),
+                edge.to.as_str(),
+                (
+                    anchor.0 - label.width / 2.0,
+                    anchor.1 - label.height / 2.0,
+                    label.width,
+                    label.height,
+                ),
+            ))
+        })
+        .collect();
+    assert_eq!(labels.len(), 8, "all edge labels should be placed");
+    for (idx, (from, to, rect)) in labels.iter().enumerate() {
+        for (other_from, other_to, other_rect) in labels.iter().skip(idx + 1) {
+            let overlap = rect_overlap_area(*rect, *other_rect);
+            assert!(
+                overlap <= 1.0,
+                "edge labels {from}->{to} and {other_from}->{other_to} overlap by {overlap:.2}px²"
+            );
+        }
+    }
+}
+
+#[test]
 fn sequence_nested_alt_wide_section_labels_do_not_panic() {
     let fixture = "sequence/nested_alt.mmd";
     let input = std::fs::read_to_string(Path::new("tests/fixtures").join(fixture)).unwrap();
