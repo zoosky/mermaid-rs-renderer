@@ -24,11 +24,25 @@ fn collect_fixtures_recursive(dir: &Path, fixtures: &mut Vec<PathBuf>) {
     }
 }
 
+fn has_non_finite_numeric_attribute(svg: &str) -> bool {
+    svg.split('"').skip(1).step_by(2).any(|attr_value| {
+        attr_value
+            .split(|ch: char| !(ch.is_ascii_alphanumeric() || matches!(ch, '+' | '-' | '.')))
+            .any(|token| {
+                matches!(
+                    token.to_ascii_lowercase().as_str(),
+                    "nan" | "inf" | "+inf" | "-inf" | "infinity" | "+infinity" | "-infinity"
+                )
+            })
+    })
+}
+
 #[test]
 fn all_repository_fixtures_satisfy_layout_invariants() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut fixtures = collect_fixtures(&manifest.join("tests/fixtures"));
     fixtures.extend(collect_fixtures(&manifest.join("benches/fixtures")));
+    fixtures.extend(collect_fixtures(&manifest.join("docs/comparison_sources")));
     fixtures.sort();
 
     let theme = Theme::modern();
@@ -70,8 +84,7 @@ fn all_repository_fixtures_satisfy_layout_invariants() {
         let svg = render_svg(&layout, &theme, &config);
         if !svg.contains("<svg")
             || !svg.contains("</svg>")
-            || svg.contains("NaN")
-            || svg.contains("inf")
+            || has_non_finite_numeric_attribute(&svg)
         {
             failures.push(format!("{rel}: invalid SVG output"));
         }

@@ -28,6 +28,19 @@ fn edge(from: &str, to: &str) -> Edge {
     }
 }
 
+fn has_non_finite_numeric_attribute(svg: &str) -> bool {
+    svg.split('"').skip(1).step_by(2).any(|attr_value| {
+        attr_value
+            .split(|ch: char| !(ch.is_ascii_alphanumeric() || matches!(ch, '+' | '-' | '.')))
+            .any(|token| {
+                matches!(
+                    token.to_ascii_lowercase().as_str(),
+                    "nan" | "inf" | "+inf" | "-inf" | "infinity" | "+infinity" | "-infinity"
+                )
+            })
+    })
+}
+
 fn graph_with_malformed_public_ir(kind: DiagramKind) -> Graph {
     let mut graph = Graph::new();
     graph.kind = kind;
@@ -85,8 +98,10 @@ fn malformed_public_graph_ir_does_not_panic_or_emit_non_finite_svg() {
             }
             let svg = render_svg(&layout, &theme, &config);
             assert!(svg.contains("<svg"), "{kind:?}: missing svg");
-            assert!(!svg.contains("NaN"), "{kind:?}: SVG contains NaN");
-            assert!(!svg.contains("inf"), "{kind:?}: SVG contains inf");
+            assert!(
+                !has_non_finite_numeric_attribute(&svg),
+                "{kind:?}: SVG contains non-finite numeric attribute"
+            );
         }));
         assert!(result.is_ok(), "{kind:?}: compute/render panicked");
     }
@@ -111,8 +126,7 @@ fn malformed_block_columns_zero_does_not_panic() {
     let layout = compute_layout(&graph, &theme, &config);
     validate_layout_invariants(&layout).expect("block layout should stay well formed");
     let svg = render_svg(&layout, &theme, &config);
-    assert!(!svg.contains("NaN"));
-    assert!(!svg.contains("inf"));
+    assert!(!has_non_finite_numeric_attribute(&svg));
 }
 
 #[test]
@@ -211,7 +225,9 @@ fn non_finite_public_numeric_data_is_sanitized() {
         validate_layout_invariants(&layout)
             .unwrap_or_else(|errors| panic!("{name}: invariant errors: {errors:?}"));
         let svg = render_svg(&layout, &theme, &config);
-        assert!(!svg.contains("NaN"), "{name}: SVG contains NaN");
-        assert!(!svg.contains("inf"), "{name}: SVG contains inf");
+        assert!(
+            !has_non_finite_numeric_attribute(&svg),
+            "{name}: SVG contains non-finite numeric attribute"
+        );
     }
 }
