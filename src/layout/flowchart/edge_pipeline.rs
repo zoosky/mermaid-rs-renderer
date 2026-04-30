@@ -150,13 +150,24 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
     }
     let edge_roles = roles::classify_edge_roles(graph);
     let mut side_loads: HashMap<String, [usize; 4]> = HashMap::new();
-    let mut edge_ports: Vec<EdgePortInfo> = Vec::with_capacity(graph.edges.len());
-    let mut selected_edge_sides: Vec<(EdgeSide, EdgeSide)> = Vec::with_capacity(graph.edges.len());
+    let mut edge_ports: Vec<EdgePortInfo> = vec![
+        EdgePortInfo {
+            start_side: EdgeSide::Right,
+            end_side: EdgeSide::Left,
+            start_offset: 0.0,
+            end_offset: 0.0,
+        };
+        graph.edges.len()
+    ];
+    let mut selected_edge_sides: Vec<(EdgeSide, EdgeSide)> =
+        vec![(EdgeSide::Right, EdgeSide::Left); graph.edges.len()];
     let mut port_candidates: HashMap<(String, PortTrack), Vec<PortCandidate>> = HashMap::new();
     let mut side_choice_segments: Vec<Segment> = Vec::with_capacity(graph.edges.len());
     for (idx, edge) in graph.edges.iter().enumerate() {
-        let from_layout = nodes.get(&edge.from).expect("from node missing");
-        let to_layout = nodes.get(&edge.to).expect("to node missing");
+        let (Some(from_layout), Some(to_layout)) = (nodes.get(&edge.from), nodes.get(&edge.to))
+        else {
+            continue;
+        };
         let temp_from = from_layout.anchor_subgraph.and_then(|anchor_idx| {
             subgraphs
                 .get(anchor_idx)
@@ -217,13 +228,13 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
         let (start_side, end_side, _is_backward) = selected_sides;
         bump_side_load(&mut side_loads, &edge.from, start_side);
         bump_side_load(&mut side_loads, &edge.to, end_side);
-        edge_ports.push(EdgePortInfo {
+        edge_ports[idx] = EdgePortInfo {
             start_side,
             end_side,
             start_offset: 0.0,
             end_offset: 0.0,
-        });
-        selected_edge_sides.push((start_side, end_side));
+        };
+        selected_edge_sides[idx] = (start_side, end_side);
 
         let from_anchor = anchor_point_for_node(from, start_side, 0.0);
         let to_anchor = anchor_point_for_node(to, end_side, 0.0);
@@ -236,8 +247,10 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
         bump_side_load(&mut node_side_counts, &edge.to, end_side);
     }
     for (idx, edge) in graph.edges.iter().enumerate() {
-        let from_layout = nodes.get(&edge.from).expect("from node missing");
-        let to_layout = nodes.get(&edge.to).expect("to node missing");
+        let (Some(from_layout), Some(to_layout)) = (nodes.get(&edge.from), nodes.get(&edge.to))
+        else {
+            continue;
+        };
         let temp_from = from_layout.anchor_subgraph.and_then(|anchor_idx| {
             subgraphs
                 .get(anchor_idx)
@@ -427,8 +440,10 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
         && graph.edges.len() >= 18
         && graph.edges.len() * 2 >= layout_node_count * 3;
     for (idx, edge) in graph.edges.iter().enumerate() {
-        let from_layout = nodes.get(&edge.from).expect("from node missing");
-        let to_layout = nodes.get(&edge.to).expect("to node missing");
+        let (Some(from_layout), Some(to_layout)) = (nodes.get(&edge.from), nodes.get(&edge.to))
+        else {
+            continue;
+        };
         let temp_from = from_layout.anchor_subgraph.and_then(|idx| {
             subgraphs
                 .get(idx)
@@ -565,8 +580,10 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
         } else {
             cross_edge_offsets[*idx]
         };
-        let from_layout = nodes.get(&edge.from).expect("from node missing");
-        let to_layout = nodes.get(&edge.to).expect("to node missing");
+        let (Some(from_layout), Some(to_layout)) = (nodes.get(&edge.from), nodes.get(&edge.to))
+        else {
+            continue;
+        };
         let temp_from = from_layout.anchor_subgraph.and_then(|idx| {
             subgraphs
                 .get(idx)
@@ -579,10 +596,12 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
         });
         let from = temp_from.as_ref().unwrap_or(from_layout);
         let to = temp_to.as_ref().unwrap_or(to_layout);
-        let port_info = edge_ports
-            .get(*idx)
-            .copied()
-            .expect("edge port info missing");
+        let port_info = edge_ports.get(*idx).copied().unwrap_or(EdgePortInfo {
+            start_side: EdgeSide::Right,
+            end_side: EdgeSide::Left,
+            start_offset: 0.0,
+            end_offset: 0.0,
+        });
         let default_stub = port_stub_length(config, from, to);
         let stub_len = match graph.kind {
             DiagramKind::Class | DiagramKind::Er | DiagramKind::Requirement => 0.0,

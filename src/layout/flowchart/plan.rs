@@ -154,8 +154,10 @@ impl FlowchartLayoutPlan {
             let Some(port_info) = edge_ports.get(idx).copied() else {
                 continue;
             };
-            let from_layout = nodes.get(&edge.from).expect("from node missing");
-            let to_layout = nodes.get(&edge.to).expect("to node missing");
+            let (Some(from_layout), Some(to_layout)) = (nodes.get(&edge.from), nodes.get(&edge.to))
+            else {
+                continue;
+            };
             let temp_from = from_layout.anchor_subgraph.and_then(|anchor_idx| {
                 subgraphs
                     .get(anchor_idx)
@@ -286,8 +288,10 @@ pub(super) fn plan_edge_lanes(
         let band_size = (config.node_spacing * 2.0).max(30.0);
         let mut groups: HashMap<i32, Vec<(usize, f32)>> = HashMap::new();
         for (idx, edge) in graph.edges.iter().enumerate() {
-            let from_layout = nodes.get(&edge.from).expect("from node missing");
-            let to_layout = nodes.get(&edge.to).expect("to node missing");
+            let (Some(from_layout), Some(to_layout)) = (nodes.get(&edge.from), nodes.get(&edge.to))
+            else {
+                continue;
+            };
             let temp_from = from_layout.anchor_subgraph.and_then(|anchor_idx| {
                 subgraphs
                     .get(anchor_idx)

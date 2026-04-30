@@ -98,7 +98,7 @@ pub(super) fn initialize_route_label_plans(
             continue;
         }
 
-        let center = provisional_route_label_center(
+        let Some(center) = provisional_route_label_center(
             idx,
             label,
             &ProvisionalRouteLabelCenterContext {
@@ -112,7 +112,9 @@ pub(super) fn initialize_route_label_plans(
                 edge_label_pad_y,
                 config,
             },
-        );
+        ) else {
+            continue;
+        };
         let obstacle_id = format!("edge-label-reserved:{idx}");
         let obstacle_index = route_label_obstacles.len();
         route_label_obstacles.push(Obstacle {
@@ -138,11 +140,13 @@ fn provisional_route_label_center(
     idx: usize,
     label: &TextBlock,
     ctx: &ProvisionalRouteLabelCenterContext<'_>,
-) -> (f32, f32) {
+) -> Option<(f32, f32)> {
     let graph = ctx.graph;
     let edge = &graph.edges[idx];
-    let from_layout = ctx.nodes.get(&edge.from).expect("from node missing");
-    let to_layout = ctx.nodes.get(&edge.to).expect("to node missing");
+    let (Some(from_layout), Some(to_layout)) = (ctx.nodes.get(&edge.from), ctx.nodes.get(&edge.to))
+    else {
+        return None;
+    };
     let temp_from = from_layout.anchor_subgraph.and_then(|anchor_idx| {
         ctx.subgraphs
             .get(anchor_idx)
@@ -155,11 +159,12 @@ fn provisional_route_label_center(
     });
     let from = temp_from.as_ref().unwrap_or(from_layout);
     let to = temp_to.as_ref().unwrap_or(to_layout);
-    let port_info = ctx
-        .edge_ports
-        .get(idx)
-        .copied()
-        .expect("edge port info missing");
+    let port_info = ctx.edge_ports.get(idx).copied().unwrap_or(EdgePortInfo {
+        start_side: super::super::routing::EdgeSide::Right,
+        end_side: super::super::routing::EdgeSide::Left,
+        start_offset: 0.0,
+        end_offset: 0.0,
+    });
     let start = anchor_point_for_node(from, port_info.start_side, port_info.start_offset);
     let end = anchor_point_for_node(to, port_info.end_side, port_info.end_offset);
 
@@ -234,7 +239,7 @@ fn provisional_route_label_center(
             }
         }
     }
-    center
+    Some(center)
 }
 
 pub(super) fn sync_route_label_plan_with_points(
