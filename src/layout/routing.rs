@@ -1816,15 +1816,22 @@ pub(super) fn route_edge_with_avoidance(
         }
     }
 
-    // Check if a direct line is possible (no obstacles in the way)
-    let direct_path = vec![route_start, route_end];
-    push_route_candidate(
-        direct_path,
-        ctx,
-        existing_segments,
-        use_existing,
-        &mut candidates,
-    );
+    // Check if a direct line is possible (no obstacles in the way). Same-side
+    // back edges are intentionally excluded from diagonal direct shortcuts:
+    // their ports were chosen to route around the outside of the diagram, and a
+    // direct diagonal between the two stubs visually cuts back through the flow.
+    let direct_axis_aligned =
+        (route_start.0 - route_end.0).abs() <= 1e-3 || (route_start.1 - route_end.1).abs() <= 1e-3;
+    if direct_axis_aligned || !(is_backward && ctx.start_side == ctx.end_side) {
+        let direct_path = vec![route_start, route_end];
+        push_route_candidate(
+            direct_path,
+            ctx,
+            existing_segments,
+            use_existing,
+            &mut candidates,
+        );
+    }
 
     push_preferred_label_detour_candidates(
         ctx,

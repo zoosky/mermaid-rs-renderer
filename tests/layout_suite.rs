@@ -599,6 +599,75 @@ fn flowchart_label_collision_fixture_routes_around_non_endpoint_nodes() {
 }
 
 #[test]
+fn td_loopback_uses_outer_left_ports_and_orthogonal_lane() {
+    let input = r#"flowchart TD
+  Start([Start]) --> Input[/Read Input/]
+  Input --> Check{Valid?}
+  Check -->|Yes| Process[Process Data]
+  Check -->|No| Error[Show Error]
+  Error --> Input
+  Process --> Save[(Save to DB)]
+  Save --> Done([End])
+"#;
+    let parsed = parse_mermaid(input).unwrap();
+    let theme = Theme::modern();
+    let config = LayoutConfig::default();
+    let layout = compute_layout(&parsed.graph, &theme, &config);
+    assert_layout_is_well_formed(&layout, "flowchart/td-loopback-ports.mmd");
+
+    let error = layout.nodes.get("Error").expect("Error node");
+    let input_node = layout.nodes.get("Input").expect("Input node");
+    let edge = layout
+        .edges
+        .iter()
+        .find(|edge| edge.from == "Error" && edge.to == "Input")
+        .expect("Error->Input loopback edge");
+
+    assert!(
+        edge.points.len() >= 4,
+        "loopback should use an outer lane with bends, got {:?}",
+        edge.points
+    );
+    assert!(
+        edge.points.windows(2).all(|segment| {
+            (segment[1].0 - segment[0].0).abs() <= 1e-3
+                || (segment[1].1 - segment[0].1).abs() <= 1e-3
+        }),
+        "loopback should stay orthogonal, got {:?}",
+        edge.points
+    );
+
+    let first = edge.points[0];
+    let second = edge.points[1];
+    let penultimate = edge.points[edge.points.len() - 2];
+    let last = edge.points[edge.points.len() - 1];
+
+    assert!(
+        (first.0 - error.x).abs() <= 1.0,
+        "loopback should leave Error from the diagram's outer-left side, got {:?} for Error {:?}",
+        edge.points,
+        error
+    );
+    assert!(
+        second.0 < first.0 - 1.0 && (second.1 - first.1).abs() <= 1.0,
+        "loopback should move outward immediately instead of crossing the source node, got {:?}",
+        edge.points
+    );
+    assert!(
+        second.0 < error.x && penultimate.0 < input_node.x,
+        "loopback lane should run outside the left edge of the involved nodes, got {:?}",
+        edge.points
+    );
+    assert!(
+        last.0 < input_node.x + input_node.width * 0.35
+            && penultimate.0 < last.0
+            && (penultimate.1 - last.1).abs() <= 1.0,
+        "loopback should re-enter Input from its left-side port, got {:?}",
+        edge.points
+    );
+}
+
+#[test]
 fn sequence_nested_alt_wide_section_labels_do_not_panic() {
     let fixture = "sequence/nested_alt.mmd";
     let input = std::fs::read_to_string(Path::new("tests/fixtures").join(fixture)).unwrap();

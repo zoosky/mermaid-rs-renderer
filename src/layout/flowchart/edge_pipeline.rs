@@ -105,6 +105,81 @@ fn port_track_node_start(node: &NodeLayout, track: PortTrack) -> f32 {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct NodeBounds {
+    min_x: f32,
+    max_x: f32,
+    min_y: f32,
+    max_y: f32,
+}
+
+fn visible_node_bounds(nodes: &BTreeMap<String, NodeLayout>) -> Option<NodeBounds> {
+    let mut bounds = NodeBounds {
+        min_x: f32::MAX,
+        max_x: f32::MIN,
+        min_y: f32::MAX,
+        max_y: f32::MIN,
+    };
+    let mut any = false;
+    for node in nodes.values() {
+        if node.hidden || node.anchor_subgraph.is_some() {
+            continue;
+        }
+        any = true;
+        bounds.min_x = bounds.min_x.min(node.x);
+        bounds.max_x = bounds.max_x.max(node.x + node.width);
+        bounds.min_y = bounds.min_y.min(node.y);
+        bounds.max_y = bounds.max_y.max(node.y + node.height);
+    }
+    any.then_some(bounds)
+}
+
+fn choose_outer_back_edge_sides(
+    from: &NodeLayout,
+    to: &NodeLayout,
+    direction: crate::ir::Direction,
+    bounds: Option<NodeBounds>,
+    fallback: (EdgeSide, EdgeSide, bool),
+) -> (EdgeSide, EdgeSide, bool) {
+    let Some(bounds) = bounds else {
+        return fallback;
+    };
+
+    if is_horizontal(direction) {
+        let upper_clearance = from.y.min(to.y) - bounds.min_y;
+        let lower_clearance = bounds.max_y - (from.y + from.height).max(to.y + to.height);
+        let side = if (upper_clearance - lower_clearance).abs() <= 1.0 {
+            let avg_y = (from.y + from.height * 0.5 + to.y + to.height * 0.5) * 0.5;
+            if avg_y <= (bounds.min_y + bounds.max_y) * 0.5 {
+                EdgeSide::Top
+            } else {
+                EdgeSide::Bottom
+            }
+        } else if upper_clearance <= lower_clearance {
+            EdgeSide::Top
+        } else {
+            EdgeSide::Bottom
+        };
+        (side, side, fallback.2)
+    } else {
+        let left_clearance = from.x.min(to.x) - bounds.min_x;
+        let right_clearance = bounds.max_x - (from.x + from.width).max(to.x + to.width);
+        let side = if (left_clearance - right_clearance).abs() <= 1.0 {
+            let avg_x = (from.x + from.width * 0.5 + to.x + to.width * 0.5) * 0.5;
+            if avg_x <= (bounds.min_x + bounds.max_x) * 0.5 {
+                EdgeSide::Left
+            } else {
+                EdgeSide::Right
+            }
+        } else if left_clearance <= right_clearance {
+            EdgeSide::Left
+        } else {
+            EdgeSide::Right
+        };
+        (side, side, fallback.2)
+    }
+}
+
 pub(in crate::layout) struct RoutedEdgeBuildContext<'a> {
     pub(in crate::layout) graph: &'a Graph,
     pub(in crate::layout) nodes: &'a BTreeMap<String, NodeLayout>,
@@ -143,6 +218,7 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
     let mut stage_metrics = stage_metrics;
 
     let port_assignment_start = Instant::now();
+    let content_bounds = visible_node_bounds(nodes);
     let mut node_degrees: HashMap<String, usize> = HashMap::new();
     for edge in &graph.edges {
         *node_degrees.entry(edge.from.clone()).or_insert(0) += 1;
@@ -191,7 +267,7 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
                 || edge_role.crosses_subgraph_boundary);
         let primary_sides = edge_sides(from, to, graph.direction);
         let mut selected_sides = if use_balanced_sides {
-            edge_sides_balanced(
+            let balanced = edge_sides_balanced(
                 &edge.from,
                 &edge.to,
                 from,
@@ -201,7 +277,12 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
                 graph.direction,
                 &node_degrees,
                 &side_loads,
-            )
+            );
+            if edge_role.is_back_edge {
+                choose_outer_back_edge_sides(from, to, graph.direction, content_bounds, balanced)
+            } else {
+                balanced
+            }
         } else {
             primary_sides
         };
@@ -792,6 +873,12 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
             config,
         );
         path_cleanup::simplify_flowchart_axis_oscillations(&mut routed_points);
+        path_cleanup::detour_flowchart_paths_around_non_endpoint_nodes(
+            graph,
+            nodes,
+            &mut routed_points,
+            config,
+        );
     }
 
     route_labels::apply_label_dummy_anchors(
