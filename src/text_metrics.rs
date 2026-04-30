@@ -142,10 +142,9 @@ impl TextMeasurer {
 }
 
 struct FontFace {
-    _data: Vec<u8>,
-    _index: u32,
+    data: Vec<u8>,
+    index: u32,
     units_per_em: u16,
-    face: Option<Face<'static>>,
     ascii_advances: Option<[u16; 128]>,
     glyph_cache: HashMap<char, Option<u16>>,
     advance_cache: HashMap<u16, u16>,
@@ -153,10 +152,7 @@ struct FontFace {
 
 impl FontFace {
     fn new(data: Vec<u8>, index: u32, units_per_em: u16) -> Self {
-        let face = Face::parse(&data, index)
-            .ok()
-            .map(|parsed| unsafe { std::mem::transmute::<Face<'_>, Face<'static>>(parsed) });
-        let ascii_advances = face.as_ref().map(|parsed| {
+        let ascii_advances = Face::parse(&data, index).ok().map(|parsed| {
             let mut advances = [0u16; 128];
             for byte in 0u8..=127 {
                 let ch = byte as char;
@@ -167,10 +163,9 @@ impl FontFace {
             advances
         });
         Self {
-            _data: data,
-            _index: index,
+            data,
+            index,
             units_per_em,
-            face,
             ascii_advances,
             glyph_cache: HashMap::new(),
             advance_cache: HashMap::new(),
@@ -199,7 +194,7 @@ impl FontFace {
             return Some(width.max(0.0));
         }
 
-        let face = self.face.as_ref()?;
+        let face = Face::parse(&self.data, self.index).ok()?;
         let scale = font_size / self.units_per_em as f32;
         let mut width = 0.0f32;
 

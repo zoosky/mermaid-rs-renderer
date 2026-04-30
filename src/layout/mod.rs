@@ -48,6 +48,7 @@ use crate::config::{LayoutConfig, PieRenderMode, TreemapRenderMode};
 use crate::ir::{Direction, Graph};
 use crate::text_metrics;
 use crate::theme::{Theme, adjust_color, parse_color_to_hsl};
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::Instant;
@@ -156,6 +157,8 @@ pub fn compute_layout_with_metrics(
     theme: &Theme,
     config: &LayoutConfig,
 ) -> (Layout, LayoutStageMetrics) {
+    let graph = normalize_graph_for_layout(graph);
+    let graph = graph.as_ref();
     let mut stage_metrics = LayoutStageMetrics::default();
     let mut layout = match graph.kind {
         crate::ir::DiagramKind::Sequence | crate::ir::DiagramKind::ZenUML => {
@@ -215,6 +218,39 @@ pub fn compute_layout_with_metrics(
         .saturating_add(label_start.elapsed().as_micros());
 
     (layout, stage_metrics)
+}
+
+fn normalize_graph_for_layout(graph: &Graph) -> Cow<'_, Graph> {
+    let needs_edge_nodes = graph
+        .edges
+        .iter()
+        .any(|edge| !graph.nodes.contains_key(&edge.from) || !graph.nodes.contains_key(&edge.to));
+    let needs_sequence_nodes = matches!(
+        graph.kind,
+        crate::ir::DiagramKind::Sequence | crate::ir::DiagramKind::ZenUML
+    ) && graph
+        .sequence_participants
+        .iter()
+        .any(|id| !graph.nodes.contains_key(id));
+
+    if !needs_edge_nodes && !needs_sequence_nodes {
+        return Cow::Borrowed(graph);
+    }
+
+    let mut normalized = graph.clone();
+    for edge in &graph.edges {
+        normalized.ensure_node(&edge.from, None, None);
+        normalized.ensure_node(&edge.to, None, None);
+    }
+    if matches!(
+        graph.kind,
+        crate::ir::DiagramKind::Sequence | crate::ir::DiagramKind::ZenUML
+    ) {
+        for id in &graph.sequence_participants {
+            normalized.ensure_node(id, None, None);
+        }
+    }
+    Cow::Owned(normalized)
 }
 
 fn include_rect_bounds(
@@ -1302,6 +1338,47 @@ mod tests {
         let a = layout.nodes.get("A").unwrap();
         let b = layout.nodes.get("B").unwrap();
         assert!(b.x >= a.x);
+    }
+
+    #[test]
+    fn layout_normalizes_missing_edge_endpoint_nodes() {
+        let mut graph = Graph::new();
+        graph.direction = Direction::LeftRight;
+        graph.ensure_node("A", Some("Alpha".to_string()), Some(NodeShape::Rectangle));
+        graph.edges.push(crate::ir::Edge {
+            from: "A".to_string(),
+            to: "B".to_string(),
+            label: None,
+            start_label: None,
+            end_label: None,
+            directed: true,
+            arrow_start: false,
+            arrow_end: true,
+            arrow_start_kind: None,
+            arrow_end_kind: None,
+            start_decoration: None,
+            end_decoration: None,
+            style: crate::ir::EdgeStyle::Solid,
+        });
+
+        let layout = compute_layout(&graph, &Theme::modern(), &LayoutConfig::default());
+
+        assert!(layout.nodes.contains_key("A"));
+        assert!(layout.nodes.contains_key("B"));
+        assert_eq!(layout.edges.len(), 1);
+    }
+
+    #[test]
+    fn sequence_layout_normalizes_missing_participants() {
+        let mut graph = Graph::new();
+        graph.kind = crate::ir::DiagramKind::Sequence;
+        graph.sequence_participants.push("Alice".to_string());
+        graph.sequence_participants.push("Bob".to_string());
+
+        let layout = compute_layout(&graph, &Theme::modern(), &LayoutConfig::default());
+
+        assert!(layout.nodes.contains_key("Alice"));
+        assert!(layout.nodes.contains_key("Bob"));
     }
 
     #[test]
