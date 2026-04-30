@@ -15,9 +15,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt -- --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo check --locked --no-default-features
+      - run: cargo check --locked --no-default-features --features cli
+      - run: cargo check --locked --no-default-features --features png
       - run: cargo test --all-targets --all-features
       - run: cargo test --no-default-features --lib
       - run: cargo test --doc --all-features
+      - run: cargo test --benches --no-run
       - run: cargo package --locked
       - name: Test compile packaged crate
         run: |

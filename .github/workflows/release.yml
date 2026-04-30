@@ -125,7 +125,7 @@ jobs:
         run: cargo publish --locked
 
   update-homebrew:
-    needs: build
+    needs: [build, publish-crate]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -160,7 +160,7 @@ jobs:
           git push
 
   update-aur:
-    needs: build
+    needs: [build, publish-crate]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

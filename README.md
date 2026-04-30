@@ -367,7 +367,7 @@ Use mmdr as a Rust library in your project:
 
 ```toml
 [dependencies]
-mermaid-rs-renderer = "0.2.0"
+mermaid-rs-renderer = "0.2.2"
 ```
 
 <details>
@@ -377,7 +377,7 @@ For tools like Zola that only need SVG rendering, disable default features to av
 
 ```toml
 [dependencies]
-mermaid-rs-renderer = { version = "0.2.0", default-features = false }
+mermaid-rs-renderer = { version = "0.2.2", default-features = false }
 ```
 
 | Feature | Default | Description |
@@ -385,7 +385,7 @@ mermaid-rs-renderer = { version = "0.2.0", default-features = false }
 | `cli` | Yes | CLI binary and clap dependency |
 | `png` | Yes | PNG output via resvg/usvg |
 
-This reduces dependencies from ~180 to ~80 crates.
+With current locked dependencies, this reduces the dependency graph from about 123 crates to about 71 crates.
 
 </details>
 
