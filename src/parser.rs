@@ -56,6 +56,7 @@ pub struct ParseOutput {
 }
 
 pub fn parse_mermaid(input: &str) -> Result<ParseOutput> {
+    validate_init_directives(input)?;
     let Some(kind) = detect_diagram_kind(input) else {
         bail!("unknown or missing Mermaid diagram header");
     };
@@ -84,6 +85,25 @@ pub fn parse_mermaid(input: &str) -> Result<ParseOutput> {
         DiagramKind::XYChart => parse_xy_chart_diagram(input),
         DiagramKind::Flowchart => parse_flowchart(input),
     }
+}
+
+fn validate_init_directives(input: &str) -> Result<()> {
+    let mut in_frontmatter = false;
+    for raw_line in input.lines() {
+        let trimmed_line = raw_line.trim();
+        if trimmed_line.is_empty() {
+            continue;
+        }
+        if trimmed_line == "---" {
+            in_frontmatter = !in_frontmatter;
+            continue;
+        }
+        if in_frontmatter {
+            continue;
+        }
+        let _ = parse_init_directive(trimmed_line)?;
+    }
+    Ok(())
 }
 
 fn detect_diagram_kind(input: &str) -> Option<DiagramKind> {
@@ -6301,7 +6321,12 @@ A["foo & bar"] & B --> C"#;
 
     #[test]
     fn invalid_init_directive_is_an_error() {
-        assert!(parse_mermaid("%%{init: {invalid json}}%%\nflowchart LR\nA-->B").is_err());
+        let err = parse_mermaid("%%{init: {invalid json}}%%\nflowchart LR\nA-->B")
+            .expect_err("invalid init directive should fail before rendering");
+        assert!(
+            err.to_string().contains("invalid Mermaid init directive"),
+            "unexpected error: {err:#}"
+        );
     }
 
     #[test]
