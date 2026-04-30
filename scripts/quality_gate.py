@@ -245,6 +245,25 @@ def compare_metrics(baseline, current, rel_tol, abs_tol):
     return regressions
 
 
+def stable_fixture_key(path_str):
+    normalized = str(path_str).replace("\\", "/")
+    for marker in ("/tests/fixtures/", "/benches/fixtures/", "/docs/comparison_sources/"):
+        idx = normalized.find(marker)
+        if idx >= 0:
+            return normalized[idx + 1 :]
+    path = Path(normalized)
+    parts = path.parts
+    for anchor in ("tests", "benches", "docs"):
+        if anchor in parts:
+            idx = parts.index(anchor)
+            return "/".join(parts[idx:])
+    return normalized
+
+
+def normalize_metric_keys(metrics):
+    return {stable_fixture_key(path): value for path, value in metrics.items()}
+
+
 def main():
     parser = argparse.ArgumentParser(description="Gate layout quality against a baseline")
     parser.add_argument(
@@ -330,7 +349,8 @@ def main():
         return 2
 
     baseline = json.loads(baseline_path.read_text())
-    baseline_metrics = baseline.get("metrics", {})
+    baseline_metrics = normalize_metric_keys(baseline.get("metrics", {}))
+    metrics = normalize_metric_keys(metrics)
     failures = []
     for fixture, base_metrics in baseline_metrics.items():
         cur_metrics = metrics.get(fixture)

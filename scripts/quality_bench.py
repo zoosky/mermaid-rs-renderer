@@ -141,6 +141,38 @@ def parse_transform(transform: str):
     return float(match.group(1)), float(match.group(2))
 
 
+def parse_rotate_transform(transform: str):
+    if not transform:
+        return None
+    match = re.search(
+        r"rotate\(\s*([-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?)"
+        r"(?:[\s,]+([-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?)[\s,]+([-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?))?\s*\)",
+        transform,
+    )
+    if not match:
+        return None
+    angle = float(match.group(1))
+    cx = float(match.group(2)) if match.group(2) is not None else 0.0
+    cy = float(match.group(3)) if match.group(3) is not None else 0.0
+    return angle, cx, cy
+
+
+def rotated_rect_bounds(x, y, width, height, angle_deg, cx, cy):
+    angle = math.radians(angle_deg)
+    cos_a = math.cos(angle)
+    sin_a = math.sin(angle)
+    points = []
+    for px, py in ((x, y), (x + width, y), (x + width, y + height), (x, y + height)):
+        dx = px - cx
+        dy = py - cy
+        points.append((cx + dx * cos_a - dy * sin_a, cy + dx * sin_a + dy * cos_a))
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    min_x = min(xs)
+    min_y = min(ys)
+    return min_x, min_y, max(xs) - min_x, max(ys) - min_y
+
+
 def strip_ns(tag: str) -> str:
     if "}" in tag:
         return tag.split("}", 1)[1]
@@ -595,6 +627,21 @@ def svg_size(root):
     return width, height
 
 
+def svg_canvas_rect(root):
+    view_box = root.attrib.get("viewBox", "")
+    if view_box:
+        parts = [p for p in view_box.replace(",", " ").split() if p]
+        if len(parts) >= 4:
+            return {
+                "x": parse_svg_number(parts[0]),
+                "y": parse_svg_number(parts[1]),
+                "width": max(0.0, parse_svg_number(parts[2])),
+                "height": max(0.0, parse_svg_number(parts[3])),
+            }
+    width, height = svg_size(root)
+    return {"x": 0.0, "y": 0.0, "width": max(0.0, width), "height": max(0.0, height)}
+
+
 def text_anchor(elem, style):
     anchor = elem.attrib.get("text-anchor")
     if not anchor:
@@ -703,6 +750,18 @@ def parse_text_boxes(svg_path: Path):
                     x -= width
                 # SVG y is text baseline; approximate top from baseline.
                 y -= font_size * 0.8
+                rotate = parse_rotate_transform(elem.attrib.get("transform", ""))
+                if rotate is not None:
+                    angle, cx, cy = rotate
+                    x, y, width, height = rotated_rect_bounds(
+                        x,
+                        y,
+                        width,
+                        height,
+                        angle,
+                        cx + acc_tx,
+                        cy + acc_ty,
+                    )
                 boxes.append(
                     {
                         "x": x,
@@ -1170,13 +1229,7 @@ def compute_label_metrics(
     labels = parse_text_boxes(svg_path)
     explicit_edge_label_boxes = parse_edge_label_boxes(svg_path)
     root = ET.fromstring(svg_path.read_text())
-    canvas_width, canvas_height = svg_size(root)
-    canvas_rect = {
-        "x": 0.0,
-        "y": 0.0,
-        "width": max(0.0, canvas_width),
-        "height": max(0.0, canvas_height),
-    }
+    canvas_rect = svg_canvas_rect(root)
     for label in labels:
         label["owner"] = infer_label_owner(label, nodes)
 
