@@ -361,17 +361,51 @@ fn first_non_endpoint_node_hit(
                 members: None,
             };
             if segment_intersects_rect(a, b, &obstacle) {
+                let mut merged = obstacle;
                 let mut last_idx = seg_idx;
-                for (later_idx, later_segment) in path.windows(2).enumerate().skip(seg_idx + 1) {
-                    if segment_intersects_rect(later_segment[0], later_segment[1], &obstacle) {
-                        last_idx = later_idx;
+                for (later_idx, later_segment) in path.windows(2).enumerate().skip(seg_idx) {
+                    let la = later_segment[0];
+                    let lb = later_segment[1];
+                    for other in nodes.values() {
+                        if other.id == from_id
+                            || other.id == to_id
+                            || other.hidden
+                            || other.anchor_subgraph.is_some()
+                        {
+                            continue;
+                        }
+                        let other_obstacle = Obstacle {
+                            id: other.id.clone(),
+                            x: other.x,
+                            y: other.y,
+                            width: other.width,
+                            height: other.height,
+                            members: None,
+                        };
+                        if segment_intersects_rect(la, lb, &other_obstacle) {
+                            last_idx = later_idx;
+                            merge_obstacle(&mut merged, &other_obstacle);
+                        }
                     }
                 }
-                return Some((seg_idx, last_idx, obstacle));
+                return Some((seg_idx, last_idx, merged));
             }
         }
     }
     None
+}
+
+fn merge_obstacle(target: &mut Obstacle, other: &Obstacle) {
+    let min_x = target.x.min(other.x);
+    let min_y = target.y.min(other.y);
+    let max_x = (target.x + target.width).max(other.x + other.width);
+    let max_y = (target.y + target.height).max(other.y + other.height);
+    target.id.push('+');
+    target.id.push_str(&other.id);
+    target.x = min_x;
+    target.y = min_y;
+    target.width = max_x - min_x;
+    target.height = max_y - min_y;
 }
 
 fn node_detour_candidates(

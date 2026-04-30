@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use mermaid_rs_renderer::layout::DiagramData;
+use mermaid_rs_renderer::layout::{DiagramData, validate_layout_invariants};
 use mermaid_rs_renderer::{Layout, LayoutConfig, Theme, compute_layout, parse_mermaid, render_svg};
 
 fn assert_valid_svg(svg: &str, fixture: &str) {
@@ -287,6 +287,9 @@ fn assert_sequence_label_clear_of_lifelines(layout: &Layout, fixture: &str) {
             label.height + 4.0,
         );
         for lifeline in &seq.lifelines {
+            if lifeline.id == edge.from || lifeline.id == edge.to {
+                continue;
+            }
             let line_rect = (
                 lifeline.x - 1.5,
                 lifeline.y1,
@@ -390,6 +393,16 @@ fn render_all_fixtures() {
         assert!(path.exists(), "fixture missing: {}", rel);
         let (layout, svg) = render_fixture(&path);
         assert_layout_is_well_formed(&layout, &rel);
+        if let Err(errors) = validate_layout_invariants(&layout) {
+            panic!(
+                "{rel}: layout invariant violations:\n{}",
+                errors
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+        }
         assert_flowchart_visual_invariants(&layout, &rel);
         assert_sequence_label_clear_of_lifelines(&layout, &rel);
         assert_valid_svg(&svg, &rel);

@@ -316,7 +316,7 @@ fn path_intersects_label_obstacle(points: &[(f32, f32)], obstacle: &Obstacle) ->
 fn detour_flowchart_path_around_label(
     points: &[(f32, f32)],
     obstacle: &Obstacle,
-    direction: Direction,
+    _direction: Direction,
     clearance: f32,
 ) -> Option<Vec<(f32, f32)>> {
     if points.len() < 2 || !path_intersects_label_obstacle(points, obstacle) {
@@ -336,41 +336,41 @@ fn detour_flowchart_path_around_label(
     let bottom = obstacle.y + obstacle.height + clearance;
     let mut candidates = Vec::new();
 
-    if is_horizontal(direction) {
-        let forward = exit.0 >= entry.0;
-        let (near_x, far_x) = if forward {
-            (left, right)
-        } else {
-            (right, left)
-        };
-        for y in [top, bottom] {
-            let mut candidate = Vec::with_capacity(points.len() + 2);
-            candidate.extend_from_slice(&points[..=first]);
-            candidate.push((near_x, y));
-            candidate.push((far_x, y));
-            candidate.extend_from_slice(&points[(last + 1)..]);
-            let candidate = compress_path(&candidate);
-            if !path_intersects_label_obstacle(&candidate, obstacle) {
-                candidates.push(candidate);
-            }
-        }
+    let via_left = (entry.0 - left).abs() + (exit.0 - left).abs();
+    let via_right = (entry.0 - right).abs() + (exit.0 - right).abs();
+    let xs = if via_left <= via_right {
+        [left, right]
     } else {
-        let forward = exit.1 >= entry.1;
-        let (near_y, far_y) = if forward {
-            (top, bottom)
-        } else {
-            (bottom, top)
-        };
-        for x in [left, right] {
-            let mut candidate = Vec::with_capacity(points.len() + 2);
-            candidate.extend_from_slice(&points[..=first]);
-            candidate.push((x, near_y));
-            candidate.push((x, far_y));
-            candidate.extend_from_slice(&points[(last + 1)..]);
-            let candidate = compress_path(&candidate);
-            if !path_intersects_label_obstacle(&candidate, obstacle) {
-                candidates.push(candidate);
-            }
+        [right, left]
+    };
+    for x in xs {
+        let mut candidate = Vec::with_capacity(points.len() + 2);
+        candidate.extend_from_slice(&points[..=first]);
+        candidate.push((x, entry.1));
+        candidate.push((x, exit.1));
+        candidate.extend_from_slice(&points[(last + 1)..]);
+        let candidate = compress_path(&candidate);
+        if !path_intersects_label_obstacle(&candidate, obstacle) {
+            candidates.push(candidate);
+        }
+    }
+
+    let via_top = (entry.1 - top).abs() + (exit.1 - top).abs();
+    let via_bottom = (entry.1 - bottom).abs() + (exit.1 - bottom).abs();
+    let ys = if via_top <= via_bottom {
+        [top, bottom]
+    } else {
+        [bottom, top]
+    };
+    for y in ys {
+        let mut candidate = Vec::with_capacity(points.len() + 2);
+        candidate.extend_from_slice(&points[..=first]);
+        candidate.push((entry.0, y));
+        candidate.push((exit.0, y));
+        candidate.extend_from_slice(&points[(last + 1)..]);
+        let candidate = compress_path(&candidate);
+        if !path_intersects_label_obstacle(&candidate, obstacle) {
+            candidates.push(candidate);
         }
     }
 

@@ -62,11 +62,13 @@ impl SequenceGeometry {
 }
 
 fn measure_sequence_text(text: &str, theme: &Theme, config: &LayoutConfig) -> TextBlock {
+    let mut sequence_config = config.clone();
+    sequence_config.max_label_width_chars = sequence_config.max_label_width_chars.min(14);
     measure_label_with_font_size(
         text,
         theme.font_size.max(16.0),
-        config,
-        false,
+        &sequence_config,
+        true,
         theme.font_family.as_str(),
     )
 }
@@ -934,7 +936,9 @@ fn choose_sequence_center_label_anchor(
     ];
     let normal_offsets_optimal = [-1.2, 1.2, -1.35, 1.35, -1.5, 1.5];
     let normal_offsets_near_optimal = [-1.05, 1.05, -1.8, 1.8, -2.25, 2.25];
-    let normal_offsets_fallback = [-0.9, 0.9, -2.7, 2.7, -3.4, 3.4];
+    let normal_offsets_fallback = [
+        -0.9, 0.9, -2.7, 2.7, -3.4, 3.4, -4.4, 4.4, -5.8, 5.8, -7.4, 7.4,
+    ];
     let mut best = anchor;
     let mut best_score = f32::INFINITY;
 
@@ -1116,8 +1120,13 @@ fn sequence_label_penalty(
     mode: SequenceLabelPlacementMode,
 ) -> f32 {
     let mut overlap_area_sum = 0.0f32;
+    let mut overlap_count = 0usize;
     for obstacle in occupied {
-        overlap_area_sum += rect_overlap_area(rect, *obstacle);
+        let area = rect_overlap_area(rect, *obstacle);
+        if area > 0.0 {
+            overlap_count += 1;
+            overlap_area_sum += area;
+        }
     }
     let own_gap = polyline_rect_gap(own_points, rect);
     let gap_penalty = match mode {
@@ -1169,7 +1178,12 @@ fn sequence_label_penalty(
         SequenceLabelPlacementMode::Center => 0.018,
         SequenceLabelPlacementMode::Endpoint => 0.025,
     };
-    overlap_area_sum * 0.01 + gap_penalty + distance(center, anchor) * anchor_weight
+    let overlap_penalty = if overlap_count == 0 {
+        0.0
+    } else {
+        10_000.0 + overlap_count as f32 * 1_000.0 + overlap_area_sum * 4.0
+    };
+    overlap_penalty + gap_penalty + distance(center, anchor) * anchor_weight
 }
 
 fn sequence_center_gap_profile(label_height: f32) -> (f32, f32) {
