@@ -222,6 +222,7 @@ fn treemap_weight(
         .nodes
         .get(id)
         .and_then(|node| node.value)
+        .filter(|value| value.is_finite())
         .unwrap_or(0.0);
     if weight <= 0.0
         && let Some(child_ids) = children.get(id)

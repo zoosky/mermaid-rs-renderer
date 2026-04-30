@@ -12,20 +12,22 @@ Add `CARGO_REGISTRY_TOKEN` to GitHub repository secrets:
 
 ## Release checklist
 
-1. Update version in `Cargo.toml` (for example `0.2.1`).
+1. Update version in `Cargo.toml` (for example `0.2.2`).
 2. Update `CHANGELOG.md`.
 3. Run local checks:
 ```bash
 cargo fmt -- --check
-cargo clippy -- -D warnings
-cargo test
-cargo publish --dry-run
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets --all-features
+cargo test --no-default-features --lib
+cargo test --doc --all-features
+cargo publish --dry-run --locked
 ```
 4. Commit and push to `master`.
 5. Create and push a version tag that matches `Cargo.toml`:
 ```bash
-git tag v0.2.1
-git push origin v0.2.1
+git tag v0.2.2
+git push origin v0.2.2
 ```
 
 ## What CI does on tag push

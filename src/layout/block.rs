@@ -32,15 +32,18 @@ pub(super) fn compute_block_layout(graph: &Graph, theme: &Theme, config: &Layout
     } else {
         (block.nodes.clone(), 0)
     };
-    let columns = block.columns.unwrap_or_else(|| {
-        if placement_nodes.is_empty() {
-            1
-        } else if inferred_columns > 0 {
-            inferred_columns
-        } else {
-            placement_nodes.len().max(1)
-        }
-    });
+    let columns = block
+        .columns
+        .filter(|columns| *columns > 0)
+        .unwrap_or_else(|| {
+            if placement_nodes.is_empty() {
+                1
+            } else if inferred_columns > 0 {
+                inferred_columns
+            } else {
+                placement_nodes.len().max(1)
+            }
+        });
     let mut column_widths = vec![0.0f32; columns];
     let mut column_x = vec![0.0f32; columns];
     let mut row_y = Vec::<f32>::new();

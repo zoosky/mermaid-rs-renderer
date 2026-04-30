@@ -18,6 +18,14 @@ fn quadrant_palette(_theme: &Theme) -> Vec<String> {
     ]
 }
 
+fn finite_unit_interval(value: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
 pub(super) fn compute_quadrant_layout(
     graph: &Graph,
     theme: &Theme,
@@ -97,8 +105,10 @@ pub(super) fn compute_quadrant_layout(
         .iter()
         .enumerate()
         .map(|(i, p)| {
-            let px = grid_x + p.x.clamp(0.0, 1.0) * grid_size;
-            let py = grid_y + (1.0 - p.y.clamp(0.0, 1.0)) * grid_size; // Invert Y
+            let x = finite_unit_interval(p.x);
+            let y = finite_unit_interval(p.y);
+            let px = grid_x + x * grid_size;
+            let py = grid_y + (1.0 - y) * grid_size; // Invert Y
             QuadrantPointLayout {
                 label: measure_label(&p.label, theme, config),
                 x: px,

@@ -14,6 +14,14 @@ fn pie_palette(theme: &Theme) -> Vec<String> {
     theme.pie_colors.to_vec()
 }
 
+fn sanitize_pie_value(value: f32) -> f32 {
+    if value.is_finite() {
+        value.max(0.0)
+    } else {
+        0.0
+    }
+}
+
 #[allow(dead_code)]
 fn format_pie_value(value: f32) -> String {
     let rounded = (value * 100.0).round() / 100.0;
@@ -42,7 +50,7 @@ pub(super) fn compute_pie_layout(graph: &Graph, theme: &Theme, config: &LayoutCo
     let total: f32 = graph
         .pie_slices
         .iter()
-        .map(|slice| slice.value.max(0.0))
+        .map(|slice| sanitize_pie_value(slice.value))
         .sum();
     let fallback_total = graph.pie_slices.len().max(1) as f32;
     let total = if total > 0.0 { total } else { fallback_total };
@@ -56,7 +64,7 @@ pub(super) fn compute_pie_layout(graph: &Graph, theme: &Theme, config: &LayoutCo
 
     let mut filtered: Vec<PieDatum> = Vec::new();
     for (idx, slice) in graph.pie_slices.iter().enumerate() {
-        let value = slice.value.max(0.0);
+        let value = sanitize_pie_value(slice.value);
         let percent = if total > 0.0 {
             value / total * 100.0
         } else {
@@ -117,7 +125,7 @@ pub(super) fn compute_pie_layout(graph: &Graph, theme: &Theme, config: &LayoutCo
     let mut legend_width: f32 = 0.0;
     let mut legend_items: Vec<(TextBlock, String)> = Vec::new();
     for slice in &graph.pie_slices {
-        let value_text = format_pie_value(slice.value);
+        let value_text = format_pie_value(sanitize_pie_value(slice.value));
         let label_text = if graph.pie_show_data {
             format!("{} [{}]", slice.label, value_text)
         } else {
@@ -183,7 +191,7 @@ pub(super) fn compute_pie_layout(graph: &Graph, theme: &Theme, config: &LayoutCo
             label,
             color,
             marker_size: pie_cfg.legend_rect_size,
-            value: graph.pie_slices[idx].value,
+            value: sanitize_pie_value(graph.pie_slices[idx].value),
         });
     }
 

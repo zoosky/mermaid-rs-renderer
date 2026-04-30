@@ -64,7 +64,11 @@ pub(super) fn compute_sankey_layout(graph: &Graph, theme: &Theme, config: &Layou
             .as_deref()
             .and_then(|text| text.parse::<f32>().ok())
             .unwrap_or(1.0);
-        let value = raw_value.max(0.0);
+        let value = if raw_value.is_finite() {
+            raw_value.max(0.0)
+        } else {
+            0.0
+        };
         let edge_idx = edges_data.len();
         edges_data.push(SankeyEdgeData {
             from_idx,

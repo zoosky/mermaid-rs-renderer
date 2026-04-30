@@ -1,5 +1,5 @@
 use crate::ir::{DiagramKind, Direction, Graph, NodeStyle, Subgraph};
-use anyhow::Result;
+use anyhow::{Result, bail};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::{HashMap, VecDeque};
@@ -56,7 +56,10 @@ pub struct ParseOutput {
 }
 
 pub fn parse_mermaid(input: &str) -> Result<ParseOutput> {
-    match detect_diagram_kind(input) {
+    let Some(kind) = detect_diagram_kind(input) else {
+        bail!("unknown or missing Mermaid diagram header");
+    };
+    match kind {
         DiagramKind::Class => parse_class_diagram(input),
         DiagramKind::State => parse_state_diagram(input),
         DiagramKind::Sequence => parse_sequence_diagram(input),
@@ -83,7 +86,7 @@ pub fn parse_mermaid(input: &str) -> Result<ParseOutput> {
     }
 }
 
-fn detect_diagram_kind(input: &str) -> DiagramKind {
+fn detect_diagram_kind(input: &str) -> Option<DiagramKind> {
     let mut in_frontmatter = false;
     for raw_line in input.lines() {
         let trimmed_line = raw_line.trim();
@@ -108,77 +111,138 @@ fn detect_diagram_kind(input: &str) -> DiagramKind {
             continue;
         }
         let lower = without_comment.to_ascii_lowercase();
-        if lower.starts_with("sequencediagram") {
-            return DiagramKind::Sequence;
+        if starts_with_diagram_header(&lower, "sequencediagram") {
+            return Some(DiagramKind::Sequence);
         }
-        if lower.starts_with("classdiagram") {
-            return DiagramKind::Class;
+        if starts_with_diagram_header(&lower, "classdiagram") {
+            return Some(DiagramKind::Class);
         }
-        if lower.starts_with("statediagram") {
-            return DiagramKind::State;
+        if starts_with_diagram_header(&lower, "statediagram") {
+            return Some(DiagramKind::State);
         }
-        if lower.starts_with("erdiagram") {
-            return DiagramKind::Er;
+        if starts_with_diagram_header(&lower, "erdiagram") {
+            return Some(DiagramKind::Er);
         }
-        if lower.starts_with("pie") {
-            return DiagramKind::Pie;
+        if starts_with_diagram_header(&lower, "pie") {
+            return Some(DiagramKind::Pie);
         }
-        if lower.starts_with("mindmap") {
-            return DiagramKind::Mindmap;
+        if starts_with_diagram_header(&lower, "mindmap") {
+            return Some(DiagramKind::Mindmap);
         }
-        if lower.starts_with("journey") {
-            return DiagramKind::Journey;
+        if starts_with_diagram_header(&lower, "journey") {
+            return Some(DiagramKind::Journey);
         }
-        if lower.starts_with("timeline") {
-            return DiagramKind::Timeline;
+        if starts_with_diagram_header(&lower, "timeline") {
+            return Some(DiagramKind::Timeline);
         }
-        if lower.starts_with("gantt") {
-            return DiagramKind::Gantt;
+        if starts_with_diagram_header(&lower, "gantt") {
+            return Some(DiagramKind::Gantt);
         }
-        if lower.starts_with("requirementdiagram") {
-            return DiagramKind::Requirement;
+        if starts_with_diagram_header(&lower, "requirementdiagram") {
+            return Some(DiagramKind::Requirement);
         }
-        if lower.starts_with("gitgraph") {
-            return DiagramKind::GitGraph;
+        if starts_with_diagram_header(&lower, "gitgraph") {
+            return Some(DiagramKind::GitGraph);
         }
-        if lower.starts_with("c4") {
-            return DiagramKind::C4;
+        if starts_with_c4_header(&lower) {
+            return Some(DiagramKind::C4);
         }
-        if lower.starts_with("sankey") {
-            return DiagramKind::Sankey;
+        if starts_with_diagram_header(&lower, "sankey") {
+            return Some(DiagramKind::Sankey);
         }
-        if lower.starts_with("quadrantchart") {
-            return DiagramKind::Quadrant;
+        if starts_with_diagram_header(&lower, "quadrantchart") {
+            return Some(DiagramKind::Quadrant);
         }
-        if lower.starts_with("zenuml") {
-            return DiagramKind::ZenUML;
+        if starts_with_diagram_header(&lower, "zenuml") {
+            return Some(DiagramKind::ZenUML);
         }
-        if lower.starts_with("block") {
-            return DiagramKind::Block;
+        if starts_with_diagram_header(&lower, "block") {
+            return Some(DiagramKind::Block);
         }
-        if lower.starts_with("packet") {
-            return DiagramKind::Packet;
+        if starts_with_diagram_header(&lower, "packet") {
+            return Some(DiagramKind::Packet);
         }
-        if lower.starts_with("kanban") {
-            return DiagramKind::Kanban;
+        if starts_with_diagram_header(&lower, "kanban") {
+            return Some(DiagramKind::Kanban);
         }
-        if lower.starts_with("architecture") {
-            return DiagramKind::Architecture;
+        if starts_with_diagram_header(&lower, "architecture") {
+            return Some(DiagramKind::Architecture);
         }
-        if lower.starts_with("radar") {
-            return DiagramKind::Radar;
+        if starts_with_diagram_header(&lower, "radar") {
+            return Some(DiagramKind::Radar);
         }
-        if lower.starts_with("treemap") {
-            return DiagramKind::Treemap;
+        if starts_with_diagram_header(&lower, "treemap") {
+            return Some(DiagramKind::Treemap);
         }
-        if lower.starts_with("xychart") {
-            return DiagramKind::XYChart;
+        if starts_with_diagram_header(&lower, "xychart") {
+            return Some(DiagramKind::XYChart);
         }
-        if lower.starts_with("flowchart") || lower.starts_with("graph") {
-            return DiagramKind::Flowchart;
+        if starts_with_diagram_header(&lower, "flowchart")
+            || starts_with_diagram_header(&lower, "graph")
+        {
+            return Some(DiagramKind::Flowchart);
         }
+        if looks_like_flowchart_edge_syntax(&without_comment) {
+            return Some(DiagramKind::Flowchart);
+        }
+        return None;
     }
-    DiagramKind::Flowchart
+    None
+}
+
+fn starts_with_diagram_header(line: &str, keyword: &str) -> bool {
+    let Some(rest) = line.strip_prefix(keyword) else {
+        return false;
+    };
+    rest.chars()
+        .next()
+        .is_none_or(|ch| !ch.is_ascii_alphanumeric())
+}
+
+fn starts_with_c4_header(line: &str) -> bool {
+    [
+        "c4",
+        "c4context",
+        "c4container",
+        "c4component",
+        "c4dynamic",
+        "c4deployment",
+    ]
+    .iter()
+    .any(|keyword| starts_with_diagram_header(line, keyword))
+}
+
+fn parse_init_directive(trimmed_line: &str) -> Result<Option<serde_json::Value>> {
+    if let Some(caps) = INIT_RE.captures(trimmed_line) {
+        if let Some(json_str) = caps.get(1).map(|m| m.as_str()) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_str) {
+                return Ok(Some(value));
+            }
+            if let Ok(value) = json5::from_str::<serde_json::Value>(json_str) {
+                return Ok(Some(value));
+            }
+            bail!("invalid Mermaid init directive: could not parse JSON/JSON5 config");
+        }
+        bail!("invalid Mermaid init directive: missing config object");
+    }
+
+    if trimmed_line.starts_with("%%{") && trimmed_line.to_ascii_lowercase().contains("init") {
+        bail!("invalid Mermaid init directive syntax");
+    }
+
+    Ok(None)
+}
+
+fn looks_like_flowchart_edge_syntax(line: &str) -> bool {
+    ARROW_TOKEN_RE.is_match(&mask_bracket_content(line))
+}
+
+fn has_missing_flowchart_edge_endpoint(line: &str) -> bool {
+    let masked = mask_bracket_content(line);
+    let trimmed = masked.trim();
+    ARROW_TOKEN_RE
+        .find_iter(trimmed)
+        .any(|m| trimmed[..m.start()].trim().is_empty() || trimmed[m.end()..].trim().is_empty())
 }
 
 fn preprocess_input(input: &str) -> Result<(Vec<String>, Option<serde_json::Value>)> {
@@ -198,14 +262,8 @@ fn preprocess_input(input: &str) -> Result<(Vec<String>, Option<serde_json::Valu
         if in_frontmatter {
             continue;
         }
-        if let Some(caps) = INIT_RE.captures(trimmed_line) {
-            if let Some(json_str) = caps.get(1).map(|m| m.as_str()) {
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_str) {
-                    init_config = Some(value);
-                } else if let Ok(value) = json5::from_str::<serde_json::Value>(json_str) {
-                    init_config = Some(value);
-                }
-            }
+        if let Some(value) = parse_init_directive(trimmed_line)? {
+            init_config = Some(value);
             continue;
         }
         if trimmed_line.starts_with("%%") {
@@ -230,14 +288,8 @@ fn preprocess_input_keep_indent(input: &str) -> Result<(Vec<String>, Option<serd
         if trimmed_line.is_empty() {
             continue;
         }
-        if let Some(caps) = INIT_RE.captures(trimmed_line) {
-            if let Some(json_str) = caps.get(1).map(|m| m.as_str()) {
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_str) {
-                    init_config = Some(value);
-                } else if let Ok(value) = json5::from_str::<serde_json::Value>(json_str) {
-                    init_config = Some(value);
-                }
-            }
+        if let Some(value) = parse_init_directive(trimmed_line)? {
+            init_config = Some(value);
             continue;
         }
         if trimmed_line.starts_with("%%") {
@@ -338,10 +390,18 @@ fn parse_flowchart(input: &str) -> Result<ParseOutput> {
                 continue;
             }
 
+            if has_missing_flowchart_edge_endpoint(&line) {
+                bail!("invalid flowchart edge syntax: {line}");
+            }
+
             if let Some(chain_lines) = split_edge_chain(&line) {
                 let mut added = false;
                 for edge_line in chain_lines {
-                    added |= add_flowchart_edge(&edge_line, &mut graph, &subgraph_stack);
+                    if add_flowchart_edge(&edge_line, &mut graph, &subgraph_stack) {
+                        added = true;
+                    } else if looks_like_flowchart_edge_syntax(&edge_line) {
+                        bail!("invalid flowchart edge syntax: {edge_line}");
+                    }
                 }
                 if added {
                     continue;
@@ -350,6 +410,10 @@ fn parse_flowchart(input: &str) -> Result<ParseOutput> {
 
             if add_flowchart_edge(&line, &mut graph, &subgraph_stack) {
                 continue;
+            }
+
+            if looks_like_flowchart_edge_syntax(&line) {
+                bail!("invalid flowchart edge syntax: {line}");
             }
 
             if let Some((node_id, node_label, node_shape, node_classes)) = parse_node_only(&line) {
@@ -6041,6 +6105,70 @@ A["foo & bar"] & B --> C"#;
             parsed.graph.nodes.get("B").unwrap().shape,
             crate::ir::NodeShape::RoundRect
         );
+    }
+
+    #[test]
+    fn bare_edge_shorthand_is_still_accepted_as_flowchart() {
+        let parsed = parse_mermaid("A --> B").unwrap();
+        assert_eq!(parsed.graph.kind, DiagramKind::Flowchart);
+        assert_eq!(parsed.graph.edges.len(), 1);
+    }
+
+    #[test]
+    fn malformed_flowchart_edges_are_errors() {
+        for input in ["flowchart LR\nA-->\n", "flowchart LR\n-->B\n"] {
+            assert!(
+                parse_mermaid(input).is_err(),
+                "malformed edge should fail: {input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_non_mermaid_input_is_an_error() {
+        assert!(parse_mermaid("notMermaid\nA --> B").is_err());
+    }
+
+    #[test]
+    fn invalid_header_prefixes_are_not_accepted() {
+        for input in [
+            "piece of text\nA-->B",
+            "graphite LR\nA-->B",
+            "flowchartish LR\nA-->B",
+            "classDiagramExtra\nA-->B",
+            "sequenceDiagramExtra\nA->>B: hi",
+            "stateDiagramExtra\nA --> B",
+            "erDiagramExtra\nA ||--|| B : owns",
+            "quadrantChartExtra\nP: [0.5, 0.5]",
+            "blockbuster\nA --> B",
+            "c4not\nPerson(a, \"A\")",
+        ] {
+            assert!(
+                parse_mermaid(input).is_err(),
+                "invalid header accepted: {input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn beta_and_c4_headers_remain_accepted() {
+        for input in [
+            "stateDiagram-v2\nA --> B",
+            "xychart-beta\nx-axis [a]\nbar [1]",
+            "block-beta\nA --> B",
+            "C4Context\nPerson(a, \"A\")",
+            "pie showData\nA: 1",
+        ] {
+            assert!(
+                parse_mermaid(input).is_ok(),
+                "valid header rejected: {input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_init_directive_is_an_error() {
+        assert!(parse_mermaid("%%{init: {invalid json}}%%\nflowchart LR\nA-->B").is_err());
     }
 
     #[test]

@@ -694,6 +694,10 @@ pub(in crate::layout) fn resolve_edge_style(
     style
 }
 
+fn sanitize_stroke_width(width: f32) -> Option<f32> {
+    width.is_finite().then_some(width.max(0.0))
+}
+
 fn merge_edge_style(
     target: &mut crate::ir::EdgeStyleOverride,
     source: &crate::ir::EdgeStyleOverride,
@@ -701,8 +705,8 @@ fn merge_edge_style(
     if source.stroke.is_some() {
         target.stroke = source.stroke.clone();
     }
-    if source.stroke_width.is_some() {
-        target.stroke_width = source.stroke_width;
+    if let Some(width) = source.stroke_width.and_then(sanitize_stroke_width) {
+        target.stroke_width = Some(width);
     }
     if source.dasharray.is_some() {
         target.dasharray = source.dasharray.clone();
@@ -1159,8 +1163,8 @@ fn merge_node_style(target: &mut crate::ir::NodeStyle, source: &crate::ir::NodeS
     if source.text_color.is_some() {
         target.text_color = source.text_color.clone();
     }
-    if source.stroke_width.is_some() {
-        target.stroke_width = source.stroke_width;
+    if let Some(width) = source.stroke_width.and_then(sanitize_stroke_width) {
+        target.stroke_width = Some(width);
     }
     if source.stroke_dasharray.is_some() {
         target.stroke_dasharray = source.stroke_dasharray.clone();

@@ -16,7 +16,7 @@ mmdr renders diagrams **100–1400x faster** than mermaid-cli by eliminating bro
 With the built-in font cache (warm after first run), tiny diagrams reach **500–900×** (and `--fastText` exceeds **1600×**).
 
 <p align="center">
-  <img src="docs/benchmarks/comparison.svg" alt="Performance comparison" width="600">
+  <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/benchmarks/comparison.svg" alt="Performance comparison" width="600">
 </p>
 
 <div align="center">
@@ -64,7 +64,7 @@ On tiny/common diagrams this reaches **1600–2069×** speedups:
 </details>
 
 <p align="center">
-  <img src="docs/benchmarks/breakdown.svg" alt="Pipeline breakdown" width="500">
+  <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/benchmarks/breakdown.svg" alt="Pipeline breakdown" width="500">
 </p>
 
 <details>
@@ -73,7 +73,7 @@ On tiny/common diagrams this reaches **1600–2069×** speedups:
 When used as a Rust library, mmdr is even faster with no process spawn overhead:
 
 <p align="center">
-  <img src="docs/benchmarks/library.svg" alt="Library performance" width="500">
+  <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/benchmarks/library.svg" alt="Library performance" width="500">
 </p>
 
 | Diagram | Library Time |
@@ -163,21 +163,21 @@ mmdr supports **23 Mermaid diagram types**:
 <tr>
 <td align="center" width="50%">
 <strong>Flowchart</strong><br>
-<img src="docs/comparisons/flowchart_mmdr.svg" alt="Flowchart" width="100%">
+<img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/flowchart_mmdr.svg" alt="Flowchart" width="100%">
 </td>
 <td align="center" width="50%">
 <strong>Class Diagram</strong><br>
-<img src="docs/comparisons/class_mmdr.svg" alt="Class Diagram" width="100%">
+<img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/class_mmdr.svg" alt="Class Diagram" width="100%">
 </td>
 </tr>
 <tr>
 <td align="center" width="50%">
 <strong>State Diagram</strong><br>
-<img src="docs/comparisons/state_mmdr.svg" alt="State Diagram" width="100%">
+<img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/state_mmdr.svg" alt="State Diagram" width="100%">
 </td>
 <td align="center" width="50%">
 <strong>Sequence Diagram</strong><br>
-<img src="docs/comparisons/sequence_mmdr.svg" alt="Sequence Diagram" width="100%">
+<img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/sequence_mmdr.svg" alt="Sequence Diagram" width="100%">
 </td>
 </tr>
 </table>
@@ -187,19 +187,19 @@ mmdr supports **23 Mermaid diagram types**:
 
 | Type | mmdr | mermaid-cli |
 |:-----|:----:|:-----------:|
-| Flowchart | <img src="docs/comparisons/flowchart_mmdr.svg" width="350"> | <img src="docs/comparisons/flowchart_official.svg" width="350"> |
-| Class | <img src="docs/comparisons/class_mmdr.svg" width="350"> | <img src="docs/comparisons/class_official.svg" width="350"> |
-| State | <img src="docs/comparisons/state_mmdr.svg" width="350"> | <img src="docs/comparisons/state_official.svg" width="350"> |
-| Sequence | <img src="docs/comparisons/sequence_mmdr.svg" width="350"> | <img src="docs/comparisons/sequence_official.svg" width="350"> |
-| ER Diagram | <img src="docs/comparisons/er_mmdr.svg" width="350"> | <img src="docs/comparisons/er_official.svg" width="350"> |
-| Pie Chart | <img src="docs/comparisons/pie_mmdr.svg" width="350"> | <img src="docs/comparisons/pie_official.svg" width="350"> |
-| Gantt | <img src="docs/comparisons/gantt_mmdr.svg" width="350"> | <img src="docs/comparisons/gantt_official.svg" width="350"> |
-| Mindmap | <img src="docs/comparisons/mindmap_mmdr.svg" width="350"> | <img src="docs/comparisons/mindmap_official.svg" width="350"> |
-| Timeline | <img src="docs/comparisons/timeline_mmdr.svg" width="350"> | <img src="docs/comparisons/timeline_official.svg" width="350"> |
-| Journey | <img src="docs/comparisons/journey_mmdr.svg" width="350"> | <img src="docs/comparisons/journey_official.svg" width="350"> |
-| Git Graph | <img src="docs/comparisons/gitgraph_mmdr.svg" width="350"> | <img src="docs/comparisons/gitgraph_official.svg" width="350"> |
-| XY Chart | <img src="docs/comparisons/xychart_mmdr.svg" width="350"> | <img src="docs/comparisons/xychart_official.svg" width="350"> |
-| Quadrant | <img src="docs/comparisons/quadrant_mmdr.svg" width="350"> | <img src="docs/comparisons/quadrant_official.svg" width="350"> |
+| Flowchart | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/flowchart_mmdr.svg" width="350"> | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/flowchart_official.svg" width="350"> |
+| Class | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/class_mmdr.svg" width="350"> | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/class_official.svg" width="350"> |
+| State | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/state_mmdr.svg" width="350"> | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/state_official.svg" width="350"> |
+| Sequence | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/sequence_mmdr.svg" width="350"> | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/sequence_official.svg" width="350"> |
+| ER Diagram | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/er_mmdr.svg" width="350"> | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/er_official.svg" width="350"> |
+| Pie Chart | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/pie_mmdr.svg" width="350"> | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/pie_official.svg" width="350"> |
+| Gantt | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/gantt_mmdr.svg" width="350"> | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/gantt_official.svg" width="350"> |
+| Mindmap | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/mindmap_mmdr.svg" width="350"> | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/mindmap_official.svg" width="350"> |
+| Timeline | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/timeline_mmdr.svg" width="350"> | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/timeline_official.svg" width="350"> |
+| Journey | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/journey_mmdr.svg" width="350"> | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/journey_official.svg" width="350"> |
+| Git Graph | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/gitgraph_mmdr.svg" width="350"> | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/gitgraph_official.svg" width="350"> |
+| XY Chart | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/xychart_mmdr.svg" width="350"> | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/xychart_official.svg" width="350"> |
+| Quadrant | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/quadrant_mmdr.svg" width="350"> | <img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/comparisons/quadrant_official.svg" width="350"> |
 
 </details>
 
@@ -340,7 +340,7 @@ mmdr -i diagram.mmd -o out.svg --preferredAspectRatio 16:9
 
 ## How It Works
 
-<img src="docs/diagrams/architecture.svg" alt="Architecture comparison" width="100%">
+<img src="https://raw.githubusercontent.com/1jehuang/mermaid-rs-renderer/master/docs/diagrams/architecture.svg" alt="Architecture comparison" width="100%">
 
 **mmdr** implements the entire Mermaid pipeline natively:
 
@@ -482,7 +482,7 @@ cargo bench --bench renderer              # Microbenchmarks
 cargo build --release && python scripts/bench_compare.py  # vs mermaid-cli
 ```
 
-Release process: see `docs/release.md`.
+Release process: see [docs/release.md](https://github.com/1jehuang/mermaid-rs-renderer/blob/master/docs/release.md).
 
 ## License
 

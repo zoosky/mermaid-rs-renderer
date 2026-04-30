@@ -1,5 +1,9 @@
 use super::*;
 
+fn finite_chart_value(value: f32) -> f32 {
+    if value.is_finite() { value } else { 0.0 }
+}
+
 pub(super) fn compute_xychart_layout(
     graph: &Graph,
     theme: &Theme,
@@ -25,13 +29,15 @@ pub(super) fn compute_xychart_layout(
     let all_values: Vec<f32> = data
         .series
         .iter()
-        .flat_map(|s| s.values.iter().copied())
+        .flat_map(|s| s.values.iter().copied().map(finite_chart_value))
         .collect();
     let min_val = data
         .y_axis_min
+        .filter(|v| v.is_finite())
         .unwrap_or_else(|| all_values.iter().copied().fold(0.0_f32, f32::min).min(0.0));
     let max_val = data
         .y_axis_max
+        .filter(|v| v.is_finite())
         .unwrap_or_else(|| all_values.iter().copied().fold(0.0_f32, f32::max));
     let range = (max_val - min_val).max(1.0);
 
@@ -83,7 +89,8 @@ pub(super) fn compute_xychart_layout(
 
         match series.kind {
             crate::ir::XYSeriesKind::Bar => {
-                for (i, &value) in series.values.iter().enumerate() {
+                for (i, raw_value) in series.values.iter().copied().enumerate() {
+                    let value = finite_chart_value(raw_value);
                     let bar_height = ((value - min_val) / range) * plot_height;
                     let x = plot_x
                         + i as f32 * bar_group_width
@@ -106,8 +113,10 @@ pub(super) fn compute_xychart_layout(
                 let points: Vec<(f32, f32)> = series
                     .values
                     .iter()
+                    .copied()
                     .enumerate()
-                    .map(|(i, &value)| {
+                    .map(|(i, raw_value)| {
+                        let value = finite_chart_value(raw_value);
                         let x = plot_x + i as f32 * bar_group_width + bar_group_width / 2.0;
                         let y = plot_y + plot_height - ((value - min_val) / range) * plot_height;
                         (x, y)

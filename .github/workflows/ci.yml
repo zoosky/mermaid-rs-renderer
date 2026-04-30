@@ -14,5 +14,20 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt -- --check
-      - run: cargo clippy -- -D warnings
-      - run: cargo test
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo test --all-targets --all-features
+      - run: cargo test --no-default-features --lib
+      - run: cargo test --doc --all-features
+      - run: cargo package --locked
+      - name: Test compile packaged crate
+        run: |
+          set -euo pipefail
+          version="$(awk -F'\"' '/^version = "/ { print $2; exit }' Cargo.toml)"
+          tmpdir="$(mktemp -d)"
+          tar -xzf "target/package/mermaid-rs-renderer-${version}.crate" -C "${tmpdir}"
+          cargo test \
+            --manifest-path "${tmpdir}/mermaid-rs-renderer-${version}/Cargo.toml" \
+            --all-targets \
+            --all-features \
+            --locked \
+            --no-run
