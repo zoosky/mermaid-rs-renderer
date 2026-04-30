@@ -2390,7 +2390,18 @@ fn extract_gantt_timing(details: &[String]) -> (Option<String>, Option<String>) 
 }
 
 fn requirement_kind_label(kind: &str) -> String {
-    let lower = kind.trim().to_ascii_lowercase();
+    let trimmed = kind.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    match lower.as_str() {
+        "requirement" => return "Requirement".to_string(),
+        "functionalrequirement" => return "Functional Requirement".to_string(),
+        "interfacerequirement" => return "Interface Requirement".to_string(),
+        "performancerequirement" => return "Performance Requirement".to_string(),
+        "physicalrequirement" => return "Physical Requirement".to_string(),
+        "designconstraint" => return "Design Constraint".to_string(),
+        "element" => return "Element".to_string(),
+        _ => {}
+    }
     let mut chars = lower.chars();
     let Some(first) = chars.next() else {
         return String::new();
@@ -2419,26 +2430,61 @@ fn requirement_title_case(value: &str) -> String {
 
 fn normalize_requirement_attr(line: &str) -> String {
     let Some((key_raw, value_raw)) = line.split_once(':') else {
-        return line.trim().to_string();
+        return strip_quotes(line.trim());
     };
     let key = key_raw.trim().to_ascii_lowercase();
-    let value = value_raw.trim();
+    let value = strip_quotes(value_raw.trim());
     let pretty_key = match key.as_str() {
         "id" => "ID".to_string(),
         "text" => "Text".to_string(),
         "risk" => "Risk".to_string(),
         "verifymethod" | "verification" => "Verification".to_string(),
+        "docref" => "Doc Ref".to_string(),
         other => requirement_kind_label(other),
     };
     let pretty_value = match key.as_str() {
-        "risk" | "verifymethod" | "verification" => requirement_title_case(value),
-        _ => value.to_string(),
+        "risk" | "verifymethod" | "verification" => requirement_title_case(&value),
+        _ => value,
     };
     if pretty_value.is_empty() {
         pretty_key
     } else {
         format!("{pretty_key}: {pretty_value}")
     }
+}
+
+fn parse_requirement_header(header: &str) -> Option<(String, String, Vec<String>)> {
+    let trimmed = header.trim();
+    let mut split_at = None;
+    for (idx, ch) in trimmed.char_indices() {
+        if ch.is_whitespace() {
+            split_at = Some(idx);
+            break;
+        }
+    }
+    let split_at = split_at?;
+    let kind = trimmed[..split_at].trim();
+    let rest = trimmed[split_at..].trim();
+    if kind.is_empty() || rest.is_empty() {
+        return None;
+    }
+    let (id_raw, classes) = split_inline_classes(rest);
+    let id = strip_quotes(&id_raw);
+    if id.is_empty() {
+        return None;
+    }
+    Some((kind.to_string(), id, classes))
+}
+
+fn push_requirement_node(graph: &mut Graph, kind: &str, id: &str, classes: &[String]) {
+    let kind_label = requirement_kind_label(kind);
+    let label = if kind_label.is_empty() {
+        id.to_string()
+    } else {
+        format!("<<{}>>\n{}", kind_label, id)
+    };
+    graph.ensure_node(id, Some(label), Some(crate::ir::NodeShape::Rectangle));
+    apply_node_classes(graph, id, classes);
 }
 
 fn parse_requirement_diagram(input: &str) -> Result<ParseOutput> {
@@ -2457,6 +2503,26 @@ fn parse_requirement_diagram(input: &str) -> Result<ParseOutput> {
         }
         let lower = line.to_ascii_lowercase();
         if lower.starts_with("requirementdiagram") {
+            continue;
+        }
+
+        if let Some(direction) = parse_direction_line(line) {
+            graph.direction = direction;
+            continue;
+        }
+
+        if line.starts_with("classDef") {
+            parse_class_def(line, &mut graph);
+            continue;
+        }
+
+        if line.starts_with("class ") {
+            parse_class_line(line, &mut graph);
+            continue;
+        }
+
+        if line.starts_with("style ") {
+            parse_style_line(line, &mut graph);
             continue;
         }
 
@@ -2482,6 +2548,7 @@ fn parse_requirement_diagram(input: &str) -> Result<ParseOutput> {
         if let Some((from, rel, to)) = parse_requirement_relation_line(line) {
             graph.ensure_node(&from, None, Some(crate::ir::NodeShape::Rectangle));
             graph.ensure_node(&to, None, Some(crate::ir::NodeShape::Rectangle));
+            let is_contains = rel == "contains";
             graph.edges.push(crate::ir::Edge {
                 from,
                 to,
@@ -2489,8 +2556,8 @@ fn parse_requirement_diagram(input: &str) -> Result<ParseOutput> {
                 start_label: None,
                 end_label: None,
                 directed: true,
-                arrow_start: false,
-                arrow_end: true,
+                arrow_start: is_contains,
+                arrow_end: !is_contains,
                 arrow_start_kind: None,
                 arrow_end_kind: None,
                 start_decoration: None,
@@ -2502,17 +2569,8 @@ fn parse_requirement_diagram(input: &str) -> Result<ParseOutput> {
 
         if let Some(open_idx) = line.find('{') {
             let header = line[..open_idx].trim();
-            let mut parts = header.split_whitespace();
-            let kind = parts.next().unwrap_or("").to_string();
-            let id = parts.next().unwrap_or("").to_string();
-            if !id.is_empty() {
-                let label = if kind.is_empty() {
-                    id.clone()
-                } else {
-                    let kind_label = requirement_kind_label(&kind);
-                    format!("<<{}>>\n{}", kind_label, id)
-                };
-                graph.ensure_node(&id, Some(label), Some(crate::ir::NodeShape::Rectangle));
+            if let Some((kind, id, classes)) = parse_requirement_header(header) {
+                push_requirement_node(&mut graph, &kind, &id, &classes);
                 current_id = Some(id.clone());
                 let tail = line[open_idx + 1..].trim();
                 if let Some(close_idx) = tail.find('}') {
@@ -2528,17 +2586,8 @@ fn parse_requirement_diagram(input: &str) -> Result<ParseOutput> {
             continue;
         }
 
-        let mut parts = line.split_whitespace();
-        let kind = parts.next().unwrap_or("");
-        let id = parts.next().unwrap_or("");
-        if !id.is_empty() {
-            let label = if kind.is_empty() {
-                id.to_string()
-            } else {
-                let kind_label = requirement_kind_label(kind);
-                format!("<<{}>>\n{}", kind_label, id)
-            };
-            graph.ensure_node(id, Some(label), Some(crate::ir::NodeShape::Rectangle));
+        if let Some((kind, id, classes)) = parse_requirement_header(line) {
+            push_requirement_node(&mut graph, &kind, &id, &classes);
         }
     }
 
@@ -2557,20 +2606,46 @@ fn parse_requirement_diagram(input: &str) -> Result<ParseOutput> {
 }
 
 fn parse_requirement_relation_line(line: &str) -> Option<(String, String, String)> {
-    let (left, right) = line.split_once("->")?;
-    let to = right.trim();
-    if to.is_empty() {
-        return None;
+    if let Some((left, right)) = line.split_once("->") {
+        let to = strip_quotes(right.trim());
+        let (from_part, rel_part) = left.trim().split_once('-')?;
+        let from = strip_quotes(from_part.trim());
+        let rel = normalize_requirement_relation(rel_part)?;
+        if from.is_empty() || to.is_empty() {
+            return None;
+        }
+        return Some((from, rel, to));
     }
-    let left = left.trim();
-    let (from_part, rel_part) = left.split_once('-')?;
-    let from = from_part.trim();
-    let rel = rel_part.trim().trim_matches('-').trim();
-    let rel_clean = rel.trim_start_matches('<').trim_end_matches('>').trim();
-    if from.is_empty() || rel_clean.is_empty() {
-        return None;
+
+    if let Some((left, right)) = line.split_once("<-") {
+        let to = strip_quotes(left.trim());
+        let (rel_part, from_part) = right.trim().split_once('-')?;
+        let from = strip_quotes(from_part.trim());
+        let rel = normalize_requirement_relation(rel_part)?;
+        if from.is_empty() || to.is_empty() {
+            return None;
+        }
+        return Some((from, rel, to));
     }
-    Some((from.to_string(), rel_clean.to_string(), to.to_string()))
+
+    None
+}
+
+fn normalize_requirement_relation(raw: &str) -> Option<String> {
+    let rel = raw
+        .trim()
+        .trim_matches('-')
+        .trim()
+        .trim_start_matches('<')
+        .trim_end_matches('>')
+        .trim()
+        .to_ascii_lowercase();
+    match rel.as_str() {
+        "contains" | "copies" | "derives" | "satisfies" | "verifies" | "refines" | "traces" => {
+            Some(rel)
+        }
+        _ => None,
+    }
 }
 
 fn parse_gitgraph_diagram(input: &str) -> Result<ParseOutput> {
@@ -6590,6 +6665,63 @@ A["foo & bar"] & B --> C"#;
         assert_eq!(parsed.graph.nodes.len(), 2);
         assert_eq!(parsed.graph.edges.len(), 1);
         assert_eq!(parsed.graph.edges[0].label.as_deref(), Some("satisfies"));
+    }
+
+    #[test]
+    fn parse_requirement_direction_and_reverse_relation() {
+        let input = r#"requirementDiagram
+  direction LR
+  requirement req1
+  element tester
+  req1 <- copies - tester"#;
+        let parsed = parse_mermaid(input).unwrap();
+        assert_eq!(parsed.graph.kind, DiagramKind::Requirement);
+        assert_eq!(parsed.graph.direction, crate::ir::Direction::LeftRight);
+        assert_eq!(parsed.graph.nodes.len(), 2);
+        assert!(!parsed.graph.nodes.contains_key("direction"));
+        assert_eq!(parsed.graph.edges.len(), 1);
+        let edge = &parsed.graph.edges[0];
+        assert_eq!(edge.from, "tester");
+        assert_eq!(edge.to, "req1");
+        assert_eq!(edge.label.as_deref(), Some("copies"));
+        assert!(!edge.arrow_start);
+        assert!(edge.arrow_end);
+    }
+
+    #[test]
+    fn parse_requirement_types_classes_styles_and_contains() {
+        let input = r##"requirementDiagram
+  classDef hot fill:#f00,stroke:#000,color:#fff
+  functionalRequirement req1:::hot {
+    id: "1.1"
+    text: "Quoted text"
+    risk: HIGH
+    verifyMethod: inspection
+  }
+  element webapp {
+    type: "application server"
+    docRef: "docs/reqs.md"
+  }
+  style webapp fill:#ffa,stroke:#333,color:#111
+  req1 - contains -> webapp"##;
+        let parsed = parse_mermaid(input).unwrap();
+        assert_eq!(parsed.graph.nodes.len(), 2);
+        let req = parsed.graph.nodes.get("req1").unwrap();
+        assert!(req.label.contains("<<Functional Requirement>>"));
+        assert!(req.label.contains("ID: 1.1"));
+        assert!(req.label.contains("Text: Quoted text"));
+        assert!(req.label.contains("Risk: High"));
+        assert!(req.label.contains("Verification: Inspection"));
+        let element = parsed.graph.nodes.get("webapp").unwrap();
+        assert!(element.label.contains("<<Element>>"));
+        assert!(element.label.contains("Type: application server"));
+        assert!(element.label.contains("Doc Ref: docs/reqs.md"));
+        assert!(parsed.graph.node_classes["req1"].contains(&"hot".to_string()));
+        assert!(parsed.graph.node_styles.contains_key("webapp"));
+        let edge = &parsed.graph.edges[0];
+        assert_eq!(edge.label.as_deref(), Some("contains"));
+        assert!(edge.arrow_start);
+        assert!(!edge.arrow_end);
     }
 
     #[test]

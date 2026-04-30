@@ -50,6 +50,7 @@ pub(in crate::layout) fn build_edge_layouts(
         let end_label = edge_end_labels[idx].clone();
         let mut override_style = resolve_edge_style(idx, graph);
         if graph.kind == DiagramKind::Requirement {
+            let is_contains = edge.label.as_deref() == Some("contains");
             if override_style.stroke.is_none() {
                 override_style.stroke = Some(config.requirement.edge_stroke.clone());
             }
@@ -58,7 +59,7 @@ pub(in crate::layout) fn build_edge_layouts(
                     .stroke_width
                     .unwrap_or(config.requirement.edge_stroke_width),
             );
-            if override_style.dasharray.is_none() {
+            if !is_contains && override_style.dasharray.is_none() {
                 override_style.dasharray = Some(config.requirement.edge_dasharray.clone());
             }
             if override_style.label_color.is_none() {
@@ -145,5 +146,45 @@ mod tests {
             edges[0].override_style.label_color.as_deref(),
             Some(config.requirement.edge_label_color.as_str())
         );
+    }
+
+    #[test]
+    fn build_edge_layouts_keeps_requirement_contains_solid() {
+        let mut graph = Graph::new();
+        graph.kind = DiagramKind::Requirement;
+        graph.ensure_node("A", Some("A".to_string()), Some(NodeShape::Rectangle));
+        graph.ensure_node("B", Some("B".to_string()), Some(NodeShape::Rectangle));
+        graph.edges.push(crate::ir::Edge {
+            from: "A".to_string(),
+            to: "B".to_string(),
+            label: Some("contains".to_string()),
+            start_label: None,
+            end_label: None,
+            directed: true,
+            arrow_start: true,
+            arrow_end: false,
+            arrow_start_kind: None,
+            arrow_end_kind: None,
+            start_decoration: None,
+            end_decoration: None,
+            style: EdgeStyle::Solid,
+        });
+
+        let config = LayoutConfig::default();
+        let edges = build_edge_layouts(
+            &graph,
+            &[vec![(0.0, 0.0), (10.0, 0.0)]],
+            &[Some(TextBlock {
+                lines: vec!["<<contains>>".to_string()],
+                width: 70.0,
+                height: 10.0,
+            })],
+            &[None],
+            &[None],
+            &[Some((5.0, 0.0))],
+            &config,
+        );
+
+        assert_eq!(edges[0].override_style.dasharray, None);
     }
 }
