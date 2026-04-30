@@ -4013,18 +4013,33 @@ fn parse_architecture_diagram(input: &str) -> Result<ParseOutput> {
             }
             continue;
         }
-        if let Some((from, to)) = parse_architecture_edge(line) {
-            graph.ensure_node(&from, None, Some(crate::ir::NodeShape::Rectangle));
-            graph.ensure_node(&to, None, Some(crate::ir::NodeShape::Rectangle));
+        if lower.starts_with("junction ") {
+            if let Some((id, parent)) = parse_architecture_junction(line) {
+                graph.ensure_node(&id, Some(String::new()), Some(crate::ir::NodeShape::Circle));
+                if let Some(node) = graph.nodes.get_mut(&id) {
+                    node.icon = Some("junction".to_string());
+                }
+                if let Some(parent_id) = parent
+                    && let Some(idx) = groups.get(&parent_id).copied()
+                    && let Some(subgraph) = graph.subgraphs.get_mut(idx)
+                {
+                    subgraph.nodes.push(id.clone());
+                }
+            }
+            continue;
+        }
+        if let Some(edge_spec) = parse_architecture_edge(line) {
+            graph.ensure_node(&edge_spec.from, None, None);
+            graph.ensure_node(&edge_spec.to, None, None);
             graph.edges.push(crate::ir::Edge {
-                from,
-                to,
+                from: edge_spec.from,
+                to: edge_spec.to,
                 label: None,
                 start_label: None,
                 end_label: None,
-                directed: true,
-                arrow_start: false,
-                arrow_end: true,
+                directed: edge_spec.arrow_start || edge_spec.arrow_end,
+                arrow_start: edge_spec.arrow_start,
+                arrow_end: edge_spec.arrow_end,
                 arrow_start_kind: None,
                 arrow_end_kind: None,
                 start_decoration: None,
@@ -4035,6 +4050,14 @@ fn parse_architecture_diagram(input: &str) -> Result<ParseOutput> {
     }
 
     Ok(ParseOutput { graph, init_config })
+}
+
+#[derive(Debug, Clone)]
+struct ArchitectureEdgeSpec {
+    from: String,
+    to: String,
+    arrow_start: bool,
+    arrow_end: bool,
 }
 
 fn parse_architecture_node(
@@ -4078,9 +4101,33 @@ fn parse_architecture_node(
     Some((kind, id, label, parent, icon))
 }
 
-fn parse_architecture_edge(line: &str) -> Option<(String, String)> {
-    let arrows = ["-->", "--", "->"];
-    for arrow in &arrows {
+fn parse_architecture_junction(line: &str) -> Option<(String, Option<String>)> {
+    let rest = line.get("junction".len()..)?.trim();
+    if rest.is_empty() {
+        return None;
+    }
+    let (id_part, parent) = if let Some((left, right)) = rest.split_once(" in ") {
+        (left.trim(), Some(right.trim().to_string()))
+    } else {
+        (rest, None)
+    };
+    let id = strip_quotes(id_part);
+    if id.is_empty() {
+        None
+    } else {
+        Some((id, parent))
+    }
+}
+
+fn parse_architecture_edge(line: &str) -> Option<ArchitectureEdgeSpec> {
+    let arrows = [
+        ("<-->", true, true),
+        ("<--", true, false),
+        ("-->", false, true),
+        ("--", false, false),
+        ("->", false, true),
+    ];
+    for (arrow, arrow_start, arrow_end) in arrows {
         if let Some(idx) = line.find(arrow) {
             let left = line[..idx].trim();
             let right = line[idx + arrow.len()..].trim();
@@ -4091,20 +4138,31 @@ fn parse_architecture_edge(line: &str) -> Option<(String, String)> {
             if from.is_empty() || to.is_empty() {
                 return None;
             }
-            return Some((from.to_string(), to.to_string()));
+            return Some(ArchitectureEdgeSpec {
+                from: from.to_string(),
+                to: to.to_string(),
+                arrow_start,
+                arrow_end,
+            });
         }
     }
     None
 }
 
+fn strip_arch_group_modifier(token: &str) -> &str {
+    token.trim().strip_suffix("{group}").unwrap_or(token).trim()
+}
+
 fn strip_arch_port_left(token: &str) -> &str {
     // "gateway:R" -> "gateway" (take the first part before ':')
-    token.split(':').next().unwrap_or(token).trim()
+    let id = token.split(':').next().unwrap_or(token).trim();
+    strip_arch_group_modifier(id)
 }
 
 fn strip_arch_port_right(token: &str) -> &str {
     // "L:app" -> "app" (take the last part after ':')
-    token.split(':').next_back().unwrap_or(token).trim()
+    let id = token.split(':').next_back().unwrap_or(token).trim();
+    strip_arch_group_modifier(id)
 }
 
 fn parse_radar_diagram(input: &str) -> Result<ParseOutput> {

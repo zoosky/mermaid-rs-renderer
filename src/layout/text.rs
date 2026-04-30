@@ -137,12 +137,231 @@ pub(super) fn char_width_factor(ch: char) -> f32 {
 
 pub(super) fn split_lines(text: &str) -> Vec<String> {
     let mut lines = Vec::new();
-    let mut current = text.replace("<br/>", "\n").replace("<br>", "\n");
+    let mut current = normalize_display_math(text)
+        .replace("<br/>", "\n")
+        .replace("<br>", "\n");
     current = current.replace("\\n", "\n");
     for line in current.split('\n') {
         lines.push(line.trim().to_string());
     }
     lines
+}
+
+fn normalize_display_math(text: &str) -> String {
+    if !text.contains("$$") {
+        return text.to_string();
+    }
+
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find("$$") {
+        out.push_str(&rest[..start]);
+        let after_start = &rest[start + 2..];
+        if let Some(end) = after_start.find("$$") {
+            out.push_str(&render_plain_math(&after_start[..end]));
+            rest = &after_start[end + 2..];
+        } else {
+            out.push_str("$$");
+            out.push_str(after_start);
+            return out;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+fn render_plain_math(input: &str) -> String {
+    fn matching_brace(chars: &[char], open: usize) -> Option<usize> {
+        if chars.get(open).copied() != Some('{') {
+            return None;
+        }
+        let mut depth = 0usize;
+        for (idx, ch) in chars.iter().enumerate().skip(open) {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return Some(idx);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn read_group(chars: &[char], idx: &mut usize) -> Option<String> {
+        while chars.get(*idx).is_some_and(|ch| ch.is_whitespace()) {
+            *idx += 1;
+        }
+        let end = matching_brace(chars, *idx)?;
+        let inner: String = chars[*idx + 1..end].iter().collect();
+        *idx = end + 1;
+        Some(render_plain_math(&inner))
+    }
+
+    fn script_char(ch: char, superscript: bool) -> Option<char> {
+        let table = if superscript {
+            [
+                ('0', '⁰'),
+                ('1', '¹'),
+                ('2', '²'),
+                ('3', '³'),
+                ('4', '⁴'),
+                ('5', '⁵'),
+                ('6', '⁶'),
+                ('7', '⁷'),
+                ('8', '⁸'),
+                ('9', '⁹'),
+                ('+', '⁺'),
+                ('-', '⁻'),
+                ('=', '⁼'),
+                ('(', '⁽'),
+                (')', '⁾'),
+            ]
+        } else {
+            [
+                ('0', '₀'),
+                ('1', '₁'),
+                ('2', '₂'),
+                ('3', '₃'),
+                ('4', '₄'),
+                ('5', '₅'),
+                ('6', '₆'),
+                ('7', '₇'),
+                ('8', '₈'),
+                ('9', '₉'),
+                ('+', '₊'),
+                ('-', '₋'),
+                ('=', '₌'),
+                ('(', '₍'),
+                (')', '₎'),
+            ]
+        };
+        table
+            .iter()
+            .find_map(|(from, to)| (*from == ch).then_some(*to))
+    }
+
+    fn render_script(value: &str, superscript: bool) -> String {
+        let mut out = String::new();
+        let mut all_mapped = true;
+        for ch in value.chars() {
+            if let Some(mapped) = script_char(ch, superscript) {
+                out.push(mapped);
+            } else {
+                all_mapped = false;
+                break;
+            }
+        }
+        if all_mapped && !out.is_empty() {
+            out
+        } else if superscript {
+            format!("^({})", render_plain_math(value))
+        } else {
+            format!("_({})", render_plain_math(value))
+        }
+    }
+
+    let chars: Vec<char> = input.chars().collect();
+    let mut out = String::with_capacity(input.len());
+    let mut idx = 0usize;
+    while idx < chars.len() {
+        match chars[idx] {
+            '\\' => {
+                if chars.get(idx + 1) == Some(&'\\') {
+                    out.push_str("; ");
+                    idx += 2;
+                    continue;
+                }
+                idx += 1;
+                let start = idx;
+                while chars.get(idx).is_some_and(|ch| ch.is_ascii_alphabetic()) {
+                    idx += 1;
+                }
+                let command: String = chars[start..idx].iter().collect();
+                match command.as_str() {
+                    "sqrt" => {
+                        if let Some(group) = read_group(&chars, &mut idx) {
+                            out.push('√');
+                            out.push('(');
+                            out.push_str(&group);
+                            out.push(')');
+                        }
+                    }
+                    "frac" => {
+                        let numerator = read_group(&chars, &mut idx).unwrap_or_default();
+                        let denominator = read_group(&chars, &mut idx).unwrap_or_default();
+                        out.push('(');
+                        out.push_str(&numerator);
+                        out.push_str(")/(");
+                        out.push_str(&denominator);
+                        out.push(')');
+                    }
+                    "text" => {
+                        if let Some(group) = read_group(&chars, &mut idx) {
+                            out.push_str(&group);
+                        }
+                    }
+                    "overbrace" => {
+                        if let Some(group) = read_group(&chars, &mut idx) {
+                            out.push_str(&group);
+                        }
+                    }
+                    "begin" => {
+                        let env = read_group(&chars, &mut idx).unwrap_or_default();
+                        if env.contains("matrix") {
+                            out.push('[');
+                        }
+                    }
+                    "end" => {
+                        let env = read_group(&chars, &mut idx).unwrap_or_default();
+                        if env.contains("matrix") {
+                            out.push(']');
+                        }
+                    }
+                    "pi" => out.push('π'),
+                    "alpha" => out.push('α'),
+                    "beta" => out.push('β'),
+                    "gamma" => out.push('γ'),
+                    "delta" => out.push('δ'),
+                    "lambda" => out.push('λ'),
+                    "mu" => out.push('μ'),
+                    "sigma" => out.push('σ'),
+                    "theta" => out.push('θ'),
+                    "cos" | "sin" | "tan" | "log" | "ln" | "exp" => out.push_str(&command),
+                    "left" | "right" | "cdot" => {}
+                    _ if !command.is_empty() => out.push_str(&command),
+                    _ => out.push('\\'),
+                }
+            }
+            '^' | '_' => {
+                let superscript = chars[idx] == '^';
+                idx += 1;
+                let script = if chars.get(idx) == Some(&'{') {
+                    read_group(&chars, &mut idx).unwrap_or_default()
+                } else if let Some(ch) = chars.get(idx).copied() {
+                    idx += 1;
+                    ch.to_string()
+                } else {
+                    String::new()
+                };
+                out.push_str(&render_script(&script, superscript));
+            }
+            '{' | '}' => idx += 1,
+            '&' => {
+                out.push(' ');
+                idx += 1;
+            }
+            ch => {
+                out.push(ch);
+                idx += 1;
+            }
+        }
+    }
+
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 pub(super) fn wrap_line(

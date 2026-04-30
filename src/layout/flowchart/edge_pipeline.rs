@@ -638,12 +638,12 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
             preferred_label_plan.map(|plan| plan.center)
         };
         let start_inset = if edge.arrow_start {
-            crate::render::arrowhead_inset(graph.kind, edge.arrow_start_kind)
+            crate::edge_geometry::arrowhead_inset(graph.kind, edge.arrow_start_kind)
         } else {
             0.0
         };
         let end_inset = if edge.arrow_end {
-            crate::render::arrowhead_inset(graph.kind, edge.arrow_end_kind)
+            crate::edge_geometry::arrowhead_inset(graph.kind, edge.arrow_end_kind)
         } else {
             0.0
         };

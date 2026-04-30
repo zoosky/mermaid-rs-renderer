@@ -415,6 +415,37 @@ pub(super) struct RouteContext<'a> {
     pub(super) coarse_grid_retry: bool,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct RouteEndpoints {
+    /// Exact point on the source node perimeter.
+    start: (f32, f32),
+    /// Exact point on the target node perimeter.
+    end: (f32, f32),
+    /// Point after the source port stub, used by the router search.
+    route_start: (f32, f32),
+    /// Point before the target port stub, used by the router search.
+    route_end: (f32, f32),
+}
+
+impl RouteEndpoints {
+    fn direct_path(&self) -> Vec<(f32, f32)> {
+        compress_path(&[self.start, self.route_start, self.route_end, self.end])
+    }
+
+    fn finish(self, ctx: &RouteContext<'_>, routed: Vec<(f32, f32)>) -> Vec<(f32, f32)> {
+        let mut combined = Vec::with_capacity(routed.len() + 2);
+        combined.push(self.start);
+        combined.extend(routed);
+        combined.push(self.end);
+        enforce_preferred_label_via(&mut combined, ctx);
+        crate::edge_geometry::apply_endpoint_insets(
+            compress_path(&combined),
+            ctx.start_inset,
+            ctx.end_inset,
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct PreferredLabelMetrics {
     hard_hits: usize,
@@ -1438,35 +1469,41 @@ pub(super) fn path_coords_reasonable(points: &[(f32, f32)]) -> bool {
         .all(|(x, y)| x.is_finite() && y.is_finite() && x.abs() <= LIMIT && y.abs() <= LIMIT)
 }
 
-fn apply_endpoint_insets(
-    mut path: Vec<(f32, f32)>,
-    start_inset: f32,
-    end_inset: f32,
-) -> Vec<(f32, f32)> {
-    if start_inset > 0.0 && path.len() >= 2 {
-        let (sx, sy) = path[0];
-        let (nx, ny) = path[1];
-        let dx = sx - nx;
-        let dy = sy - ny;
-        let len = (dx * dx + dy * dy).sqrt();
-        if len > start_inset {
-            let r = start_inset / len;
-            path[0] = (sx - dx * r, sy - dy * r);
+fn resolve_route_endpoints(ctx: &RouteContext<'_>) -> RouteEndpoints {
+    let start = anchor_point_for_node(ctx.from, ctx.start_side, ctx.start_offset);
+    let end = anchor_point_for_node(ctx.to, ctx.end_side, ctx.end_offset);
+    let mut route_start = port_stub_point(start, ctx.start_side, ctx.stub_len);
+    let mut route_end = port_stub_point(end, ctx.end_side, ctx.stub_len);
+
+    // If a short port stub would immediately cross an unrelated node, collapse
+    // only that stub. Keeping this in endpoint resolution prevents every route
+    // candidate generator from having to duplicate the same safety check.
+    let stub_hits_node = |a: (f32, f32), b: (f32, f32)| {
+        ctx.obstacles.iter().any(|obstacle| {
+            if obstacle.members.is_some() {
+                return false;
+            }
+            if obstacle.id == ctx.from_id || obstacle.id == ctx.to_id {
+                return false;
+            }
+            segment_intersects_rect(a, b, obstacle)
+        })
+    };
+    if ctx.obstacles.len() <= 10 {
+        if stub_hits_node(start, route_start) {
+            route_start = start;
+        }
+        if stub_hits_node(route_end, end) {
+            route_end = end;
         }
     }
-    if end_inset > 0.0 && path.len() >= 2 {
-        let n = path.len();
-        let (px, py) = path[n - 2];
-        let (ex, ey) = path[n - 1];
-        let dx = ex - px;
-        let dy = ey - py;
-        let len = (dx * dx + dy * dy).sqrt();
-        if len > end_inset {
-            let r = end_inset / len;
-            path[n - 1] = (ex - dx * r, ey - dy * r);
-        }
+
+    RouteEndpoints {
+        start,
+        end,
+        route_start,
+        route_end,
     }
-    path
 }
 
 fn point_segment_distance(a: (f32, f32), b: (f32, f32), p: (f32, f32)) -> f32 {
@@ -1631,42 +1668,39 @@ pub(super) fn route_edge_with_avoidance(
             }
         }
 
-        let mut best = compress_path(&candidates.swap_remove(best_idx.expect("candidate")).points);
+        let Some(best_idx) = best_idx else {
+            let mut fallback = compress_path(&route_self_loop(ctx.from, ctx.direction, ctx.config));
+            enforce_preferred_label_via(&mut fallback, ctx);
+            return crate::edge_geometry::apply_endpoint_insets(
+                compress_path(&fallback),
+                ctx.start_inset,
+                ctx.end_inset,
+            );
+        };
+        let mut best = compress_path(&candidates.swap_remove(best_idx).points);
         enforce_preferred_label_via(&mut best, ctx);
-        return apply_endpoint_insets(compress_path(&best), ctx.start_inset, ctx.end_inset);
+        return crate::edge_geometry::apply_endpoint_insets(
+            compress_path(&best),
+            ctx.start_inset,
+            ctx.end_inset,
+        );
     }
 
     let (_, _, is_backward) = edge_sides(ctx.from, ctx.to, ctx.direction);
 
-    // Anchor edges using resolved port offsets to reduce overlap
-    let start = anchor_point_for_node(ctx.from, ctx.start_side, ctx.start_offset);
-    let end = anchor_point_for_node(ctx.to, ctx.end_side, ctx.end_offset);
-    let stub_len = ctx.stub_len;
-    let mut route_start = port_stub_point(start, ctx.start_side, stub_len);
-    let mut route_end = port_stub_point(end, ctx.end_side, stub_len);
-    let stub_hits_node = |a: (f32, f32), b: (f32, f32)| {
-        ctx.obstacles.iter().any(|obstacle| {
-            if obstacle.members.is_some() {
-                return false;
-            }
-            if obstacle.id == ctx.from_id || obstacle.id == ctx.to_id {
-                return false;
-            }
-            segment_intersects_rect(a, b, obstacle)
-        })
-    };
-    if ctx.obstacles.len() <= 10 {
-        if stub_hits_node(start, route_start) {
-            route_start = start;
-        }
-        if stub_hits_node(route_end, end) {
-            route_end = end;
-        }
-    }
+    let endpoints = resolve_route_endpoints(ctx);
+    let start = endpoints.start;
+    let end = endpoints.end;
+    let route_start = endpoints.route_start;
+    let route_end = endpoints.route_end;
     if ctx.fast_route {
-        let mut fast = compress_path(&[start, route_start, route_end, end]);
+        let mut fast = endpoints.direct_path();
         enforce_preferred_label_via(&mut fast, ctx);
-        return apply_endpoint_insets(compress_path(&fast), ctx.start_inset, ctx.end_inset);
+        return crate::edge_geometry::apply_endpoint_insets(
+            compress_path(&fast),
+            ctx.start_inset,
+            ctx.end_inset,
+        );
     }
     let mut candidates: Vec<RouteCandidate> = Vec::new();
     let existing_segments = existing.unwrap_or(&[]);
@@ -2128,13 +2162,11 @@ pub(super) fn route_edge_with_avoidance(
                 best_key = Some(key);
             }
         }
-        let best = candidates.swap_remove(best_idx.expect("candidate"));
-        let mut combined = Vec::with_capacity(best.points.len() + 2);
-        combined.push(start);
-        combined.extend(best.points);
-        combined.push(end);
-        enforce_preferred_label_via(&mut combined, ctx);
-        return apply_endpoint_insets(compress_path(&combined), ctx.start_inset, ctx.end_inset);
+        let Some(best_idx) = best_idx else {
+            return endpoints.finish(ctx, vec![route_start, route_end]);
+        };
+        let best = candidates.swap_remove(best_idx);
+        return endpoints.finish(ctx, best.points);
     }
 
     let mut best_idx = None;
@@ -2147,13 +2179,11 @@ pub(super) fn route_edge_with_avoidance(
             best_key = Some(key);
         }
     }
-    let best = candidates.swap_remove(best_idx.expect("candidate"));
-    let mut combined = Vec::with_capacity(best.points.len() + 2);
-    combined.push(start);
-    combined.extend(best.points);
-    combined.push(end);
-    enforce_preferred_label_via(&mut combined, ctx);
-    apply_endpoint_insets(compress_path(&combined), ctx.start_inset, ctx.end_inset)
+    let Some(best_idx) = best_idx else {
+        return endpoints.finish(ctx, vec![route_start, route_end]);
+    };
+    let best = candidates.swap_remove(best_idx);
+    endpoints.finish(ctx, best.points)
 }
 
 pub(super) fn path_obstacle_intersections(

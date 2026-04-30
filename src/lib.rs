@@ -91,6 +91,7 @@
 #[cfg(feature = "cli")]
 pub mod cli;
 pub mod config;
+mod edge_geometry;
 pub mod ir;
 pub mod layout;
 pub mod layout_dump;

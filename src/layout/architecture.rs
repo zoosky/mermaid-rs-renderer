@@ -7,6 +7,7 @@ pub(super) fn compute_architecture_layout(
 ) -> Layout {
     const MARGIN: f32 = 24.0;
     const SERVICE_SIZE: f32 = 64.0;
+    const JUNCTION_SIZE: f32 = 18.0;
     const SERVICE_GAP: f32 = 72.0;
     const GROUP_PAD_X: f32 = 28.0;
     const GROUP_PAD_TOP: f32 = 32.0;
@@ -18,10 +19,16 @@ pub(super) fn compute_architecture_layout(
     let mut nodes = BTreeMap::new();
 
     for node in graph.nodes.values() {
+        let is_junction = node.icon.as_deref() == Some("junction")
+            || (node.shape == crate::ir::NodeShape::Circle && node.label.trim().is_empty());
         let label = measure_label(&node.label, theme, config);
         let mut style = resolve_node_style(node.id.as_str(), graph);
         if style.fill.is_none() {
-            style.fill = Some(ICON_FILL.to_string());
+            style.fill = Some(if is_junction {
+                theme.line_color.clone()
+            } else {
+                ICON_FILL.to_string()
+            });
         }
         if style.stroke.is_none() {
             style.stroke = Some("none".to_string());
@@ -29,8 +36,17 @@ pub(super) fn compute_architecture_layout(
         if style.stroke_width.is_none() {
             style.stroke_width = Some(0.0);
         }
-        let mut nl = build_node_layout(node, label, SERVICE_SIZE, SERVICE_SIZE, style, graph);
-        nl.shape = crate::ir::NodeShape::Rectangle;
+        let size = if is_junction {
+            JUNCTION_SIZE
+        } else {
+            SERVICE_SIZE
+        };
+        let mut nl = build_node_layout(node, label, size, size, style, graph);
+        nl.shape = if is_junction {
+            crate::ir::NodeShape::Circle
+        } else {
+            crate::ir::NodeShape::Rectangle
+        };
         nl.icon = node.icon.clone();
         nodes.insert(node.id.clone(), nl);
     }
@@ -194,9 +210,9 @@ pub(super) fn compute_architecture_layout(
             start_label_anchor: None,
             end_label_anchor: None,
             points: compress_path(&points),
-            directed: true,
-            arrow_start: false,
-            arrow_end: true,
+            directed: edge.directed,
+            arrow_start: edge.arrow_start,
+            arrow_end: edge.arrow_end,
             arrow_start_kind: None,
             arrow_end_kind: None,
             start_decoration: None,
