@@ -1,7 +1,22 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use mermaid_rs_renderer::layout::validate_layout_invariants;
-use mermaid_rs_renderer::{LayoutConfig, Theme, compute_layout, parse_mermaid, render_svg};
+use mermaid_rs_renderer::ir::{BlockDiagram, QuadrantPoint};
+use mermaid_rs_renderer::layout::{
+    DiagramData, EdgeLayout, Layout, QuadrantLayout, QuadrantPointLayout, TextBlock,
+    validate_layout_invariants,
+};
+use mermaid_rs_renderer::{
+    DiagramKind, EdgeStyle, Graph, LayoutConfig, Theme, compute_layout, parse_mermaid, render_svg,
+};
+
+fn empty_text_block() -> TextBlock {
+    TextBlock {
+        lines: vec![String::new()],
+        width: 0.0,
+        height: 0.0,
+    }
+}
 
 fn collect_fixtures(root: &Path) -> Vec<PathBuf> {
     let mut fixtures = Vec::new();
@@ -35,6 +50,114 @@ fn has_non_finite_numeric_attribute(svg: &str) -> bool {
                 )
             })
     })
+}
+
+#[test]
+fn malformed_block_columns_zero_does_not_panic() {
+    let mut graph = Graph::new();
+    graph.kind = DiagramKind::Block;
+    graph.block = Some(BlockDiagram {
+        columns: Some(0),
+        nodes: Vec::new(),
+    });
+
+    let layout = compute_layout(&graph, &Theme::modern(), &LayoutConfig::default());
+    validate_layout_invariants(&layout).expect("layout should remain valid");
+}
+
+#[test]
+fn quadrant_layout_sanitizes_non_finite_direct_ir_points() {
+    let mut graph = Graph::new();
+    graph.kind = DiagramKind::Quadrant;
+    graph.quadrant.points.push(QuadrantPoint {
+        label: "bad".to_string(),
+        x: f32::NAN,
+        y: f32::INFINITY,
+    });
+
+    let layout = compute_layout(&graph, &Theme::modern(), &LayoutConfig::default());
+    validate_layout_invariants(&layout).expect("non-finite input should be sanitized in layout");
+}
+
+#[test]
+fn invariants_reject_non_finite_diagram_specific_geometry() {
+    let layout = Layout {
+        kind: DiagramKind::Quadrant,
+        nodes: BTreeMap::new(),
+        edges: Vec::new(),
+        subgraphs: Vec::new(),
+        width: 100.0,
+        height: 100.0,
+        diagram: DiagramData::Quadrant(QuadrantLayout {
+            title: None,
+            title_y: 0.0,
+            x_axis_left: None,
+            x_axis_right: None,
+            y_axis_bottom: None,
+            y_axis_top: None,
+            quadrant_labels: [None, None, None, None],
+            points: vec![QuadrantPointLayout {
+                label: empty_text_block(),
+                x: f32::NAN,
+                y: 1.0,
+                color: "#000".to_string(),
+            }],
+            grid_x: 0.0,
+            grid_y: 0.0,
+            grid_width: 100.0,
+            grid_height: 100.0,
+        }),
+    };
+
+    let errors = validate_layout_invariants(&layout).expect_err("NaN point must fail invariants");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.path.contains("quadrant.points[0].x")),
+        "expected quadrant point x error, got {errors:?}"
+    );
+}
+
+#[test]
+fn invariants_reject_edges_with_fewer_than_two_points() {
+    let layout = Layout {
+        kind: DiagramKind::Flowchart,
+        nodes: BTreeMap::new(),
+        edges: vec![EdgeLayout {
+            from: "A".to_string(),
+            to: "B".to_string(),
+            label: None,
+            start_label: None,
+            end_label: None,
+            label_anchor: None,
+            start_label_anchor: None,
+            end_label_anchor: None,
+            points: vec![(0.0, 0.0)],
+            directed: true,
+            arrow_start: false,
+            arrow_end: true,
+            arrow_start_kind: None,
+            arrow_end_kind: None,
+            start_decoration: None,
+            end_decoration: None,
+            style: EdgeStyle::Solid,
+            override_style: Default::default(),
+        }],
+        subgraphs: Vec::new(),
+        width: 100.0,
+        height: 100.0,
+        diagram: DiagramData::Graph {
+            state_notes: Vec::new(),
+        },
+    };
+
+    let errors = validate_layout_invariants(&layout).expect_err("short edge path must fail");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.path.contains("edges[0:A->B].points")),
+        "expected edge points error, got {errors:?}"
+    );
 }
 
 #[test]
