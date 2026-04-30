@@ -1,10 +1,69 @@
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group};
 use mermaid_rs_renderer::config::LayoutConfig;
 use mermaid_rs_renderer::layout::compute_layout;
 use mermaid_rs_renderer::parser::parse_mermaid;
 use mermaid_rs_renderer::render::render_svg;
 use mermaid_rs_renderer::theme::Theme;
 use std::hint::black_box;
+use std::time::Duration;
+
+const BENCH_FIXTURES: &[&str] = &[
+    "flowchart_small",
+    "flowchart_medium",
+    "flowchart_large",
+    "flowchart_tiny",
+    "flowchart_ports_heavy",
+    "flowchart_weave",
+    "flowchart_backedges_subgraphs",
+    "flowchart_sparse_components",
+    "flowchart_lanes_crossfeed",
+    "flowchart_grid_feedback",
+    "flowchart_fanout_returns",
+    "flowchart_label_collision",
+    "flowchart_nested_clusters",
+    "flowchart_asymmetric_components",
+    "flowchart_parallel_merges",
+    "flowchart_long_edge_labels",
+    "flowchart_selfloop_bidi",
+    "flowchart_component_packing",
+    "flowchart_direction_conflict",
+    "flowchart_parallel_label_stack",
+    "flowchart_port_alignment_matrix",
+    "flowchart_path_occlusion_maze",
+    "flowchart_subgraph_boundary_intrusion",
+    "flowchart_parallel_edges_bundle",
+    "flowchart_flow_direction_backtrack",
+    "flowchart_mega_multihub_control",
+    "flowchart_mega_crosslane_subgraphs",
+    "flowchart_mega_braid_feedback",
+    "flowchart_mega_event_mesh",
+    "flowchart_mega_nested_regions",
+    "class_tiny",
+    "state_tiny",
+    "sequence_tiny",
+    "class_medium",
+    "state_medium",
+    "sequence_medium",
+    "er_medium",
+    "pie_medium",
+    "mindmap_medium",
+    "journey_medium",
+    "timeline_medium",
+    "gantt_medium",
+    "requirement_medium",
+    "gitgraph_medium",
+    "c4_medium",
+    "sankey_medium",
+    "quadrant_medium",
+    "zenuml_medium",
+    "block_medium",
+    "packet_medium",
+    "kanban_medium",
+    "architecture_medium",
+    "radar_medium",
+    "treemap_medium",
+    "xychart_medium",
+];
 
 fn dense_flowchart_source(nodes: usize, extra_edges: usize) -> String {
     let mut out = String::from("flowchart LR\n");
@@ -609,7 +668,56 @@ fn bench_end_to_end(c: &mut Criterion) {
 
 criterion_group!(
     name = benches;
-    config = Criterion::default();
+    config = Criterion::default()
+        .sample_size(10)
+        .warm_up_time(Duration::from_millis(100))
+        .measurement_time(Duration::from_millis(300));
     targets = bench_parse, bench_layout, bench_edge_routing, bench_edge_routing_grid_modes, bench_render, bench_end_to_end
 );
-criterion_main!(benches);
+
+fn smoke_validate_bench_inputs() {
+    let theme = Theme::modern();
+    let config = LayoutConfig::default();
+    for name in BENCH_FIXTURES {
+        parse_mermaid(fixture(name)).expect("parse failed");
+    }
+
+    for name in [
+        "flowchart_tiny",
+        "flowchart_long_edge_labels",
+        "flowchart_label_collision",
+        "class_tiny",
+        "sequence_tiny",
+        "pie_medium",
+        "gantt_medium",
+    ] {
+        let parsed = parse_mermaid(fixture(name)).expect("parse failed");
+        let layout = compute_layout(&parsed.graph, &theme, &config);
+        let svg = render_svg(&layout, &theme, &config);
+        assert!(
+            layout.width.is_finite(),
+            "{name}: layout width is not finite"
+        );
+        assert!(
+            layout.height.is_finite(),
+            "{name}: layout height is not finite"
+        );
+        assert!(!svg.contains("NaN"), "{name}: SVG contains NaN");
+    }
+
+    for (nodes, extra_edges) in [(40usize, 80usize), (60, 180)] {
+        let input = dense_flowchart_source(nodes, extra_edges);
+        let parsed = parse_mermaid(&input).expect("parse failed");
+        let layout = compute_layout(&parsed.graph, &theme, &config);
+        assert_eq!(layout.nodes.len(), nodes, "dense flowchart node count");
+    }
+}
+
+fn main() {
+    if std::env::var_os("MMDR_RUN_CRITERION_BENCHES").is_some() {
+        benches();
+        Criterion::default().configure_from_args().final_summary();
+    } else {
+        smoke_validate_bench_inputs();
+    }
+}

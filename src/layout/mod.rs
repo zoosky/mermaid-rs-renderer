@@ -207,12 +207,173 @@ pub fn compute_layout_with_metrics(
     label_placement::resolve_all_label_positions(&mut layout, theme, config);
     if matches!(layout.diagram, DiagramData::Sequence(_)) {
         sequence::finalize_sequence_layout_bounds(&mut layout);
+    } else if matches!(layout.diagram, DiagramData::Graph { .. }) {
+        finalize_graph_label_bounds(&mut layout, config);
     }
     stage_metrics.label_placement_us = stage_metrics
         .label_placement_us
         .saturating_add(label_start.elapsed().as_micros());
 
     (layout, stage_metrics)
+}
+
+fn include_rect_bounds(
+    min_x: &mut f32,
+    min_y: &mut f32,
+    max_x: &mut f32,
+    max_y: &mut f32,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+) {
+    *min_x = (*min_x).min(x);
+    *min_y = (*min_y).min(y);
+    *max_x = (*max_x).max(x + width);
+    *max_y = (*max_y).max(y + height);
+}
+
+fn translate_graph_layout(layout: &mut Layout, dx: f32, dy: f32) {
+    if dx == 0.0 && dy == 0.0 {
+        return;
+    }
+    for node in layout.nodes.values_mut() {
+        node.x += dx;
+        node.y += dy;
+    }
+    for subgraph in &mut layout.subgraphs {
+        subgraph.x += dx;
+        subgraph.y += dy;
+    }
+    for edge in &mut layout.edges {
+        for point in &mut edge.points {
+            point.0 += dx;
+            point.1 += dy;
+        }
+        if let Some(anchor) = &mut edge.label_anchor {
+            anchor.0 += dx;
+            anchor.1 += dy;
+        }
+        if let Some(anchor) = &mut edge.start_label_anchor {
+            anchor.0 += dx;
+            anchor.1 += dy;
+        }
+        if let Some(anchor) = &mut edge.end_label_anchor {
+            anchor.0 += dx;
+            anchor.1 += dy;
+        }
+    }
+    if let DiagramData::Graph { state_notes } = &mut layout.diagram {
+        for note in state_notes {
+            note.x += dx;
+            note.y += dy;
+        }
+    }
+}
+
+fn finalize_graph_label_bounds(layout: &mut Layout, config: &LayoutConfig) {
+    let mut min_x = 0.0f32;
+    let mut min_y = 0.0f32;
+    let mut max_x = layout.width;
+    let mut max_y = layout.height;
+    let (label_pad_x, label_pad_y) = label_placement::edge_label_padding(layout.kind, config);
+
+    for node in layout.nodes.values() {
+        include_rect_bounds(
+            &mut min_x,
+            &mut min_y,
+            &mut max_x,
+            &mut max_y,
+            node.x,
+            node.y,
+            node.width,
+            node.height,
+        );
+    }
+    for subgraph in &layout.subgraphs {
+        include_rect_bounds(
+            &mut min_x,
+            &mut min_y,
+            &mut max_x,
+            &mut max_y,
+            subgraph.x,
+            subgraph.y,
+            subgraph.width,
+            subgraph.height,
+        );
+    }
+    for edge in &layout.edges {
+        for point in &edge.points {
+            min_x = min_x.min(point.0);
+            min_y = min_y.min(point.1);
+            max_x = max_x.max(point.0);
+            max_y = max_y.max(point.1);
+        }
+        if let (Some(label), Some((x, y))) = (&edge.label, edge.label_anchor) {
+            include_rect_bounds(
+                &mut min_x,
+                &mut min_y,
+                &mut max_x,
+                &mut max_y,
+                x - label.width / 2.0 - label_pad_x,
+                y - label.height / 2.0 - label_pad_y,
+                label.width + label_pad_x * 2.0,
+                label.height + label_pad_y * 2.0,
+            );
+        }
+        if let (Some(label), Some((x, y))) = (&edge.start_label, edge.start_label_anchor) {
+            include_rect_bounds(
+                &mut min_x,
+                &mut min_y,
+                &mut max_x,
+                &mut max_y,
+                x - label.width / 2.0 - label_pad_x,
+                y - label.height / 2.0 - label_pad_y,
+                label.width + label_pad_x * 2.0,
+                label.height + label_pad_y * 2.0,
+            );
+        }
+        if let (Some(label), Some((x, y))) = (&edge.end_label, edge.end_label_anchor) {
+            include_rect_bounds(
+                &mut min_x,
+                &mut min_y,
+                &mut max_x,
+                &mut max_y,
+                x - label.width / 2.0 - label_pad_x,
+                y - label.height / 2.0 - label_pad_y,
+                label.width + label_pad_x * 2.0,
+                label.height + label_pad_y * 2.0,
+            );
+        }
+    }
+    if let DiagramData::Graph { state_notes } = &layout.diagram {
+        for note in state_notes {
+            include_rect_bounds(
+                &mut min_x,
+                &mut min_y,
+                &mut max_x,
+                &mut max_y,
+                note.x,
+                note.y,
+                note.width,
+                note.height,
+            );
+        }
+    }
+
+    let dx = if min_x < 0.0 {
+        -min_x + LAYOUT_BOUNDARY_PAD
+    } else {
+        0.0
+    };
+    let dy = if min_y < 0.0 {
+        -min_y + LAYOUT_BOUNDARY_PAD
+    } else {
+        0.0
+    };
+    translate_graph_layout(layout, dx, dy);
+    layout.width = (max_x + dx + LAYOUT_BOUNDARY_PAD).max(layout.width + dx);
+    layout.height = (max_y + dy + LAYOUT_BOUNDARY_PAD).max(layout.height + dy);
 }
 
 fn compute_flowchart_layout(
@@ -449,6 +610,12 @@ fn compute_flowchart_layout(
         &effective_config,
     );
     apply_subgraph_direction_overrides(graph, &mut nodes, config, &anchored_indices);
+    // Objective and direction passes can shift whole top-level groups after the
+    // initial subgraph cleanup. Re-apply the non-overlap spacing constraints
+    // before subgraph boxes are materialized so dense cross-subgraph flowcharts
+    // keep sibling regions visually distinct.
+    flowchart::subgraph_spacing::enforce_top_level_subgraph_gap(graph, &mut nodes, theme, config);
+    flowchart::subgraph_spacing::separate_sibling_subgraphs(graph, &mut nodes, theme, config);
     flowchart::subgraph_spacing::debug_assert_flowchart_node_layout_invariants(graph, &nodes);
 
     // For state diagrams, push non-member nodes outside subgraph bounds

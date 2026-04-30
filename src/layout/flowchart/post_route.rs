@@ -5,8 +5,9 @@ use crate::ir::{DiagramKind, Graph};
 
 use super::super::{EdgeLayout, NodeLayout, TextBlock, resolve_edge_style};
 use super::path_cleanup::{
-    deoverlap_flowchart_paths, reduce_orthogonal_path_crossings,
-    simplify_flowchart_axis_oscillations, simplify_flowchart_detour_rectangles,
+    deoverlap_flowchart_paths, detour_flowchart_paths_around_non_endpoint_nodes,
+    reduce_orthogonal_path_crossings, simplify_flowchart_axis_oscillations,
+    simplify_flowchart_detour_rectangles,
 };
 
 pub(in crate::layout) fn apply_edge_path_cleanup(
@@ -19,6 +20,8 @@ pub(in crate::layout) fn apply_edge_path_cleanup(
         reduce_orthogonal_path_crossings(graph, nodes, routed_points, config);
         deoverlap_flowchart_paths(graph, nodes, routed_points, config);
         simplify_flowchart_detour_rectangles(graph, nodes, routed_points);
+        simplify_flowchart_axis_oscillations(routed_points);
+        detour_flowchart_paths_around_non_endpoint_nodes(graph, nodes, routed_points, config);
         simplify_flowchart_axis_oscillations(routed_points);
     } else if matches!(
         graph.kind,

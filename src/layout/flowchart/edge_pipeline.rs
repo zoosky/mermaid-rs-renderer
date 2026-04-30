@@ -12,6 +12,7 @@ use super::super::{
     LayoutStageMetrics, MIN_NODE_SPACING_FLOOR, MULTI_EDGE_OFFSET_RATIO, NodeLayout,
     SubgraphLayout, TextBlock, anchor_layout_for_edge,
 };
+use super::path_cleanup;
 use super::plan;
 use super::post_route;
 use super::roles;
@@ -763,6 +764,15 @@ pub(in crate::layout) fn build_routed_edges(ctx: RoutedEdgeBuildContext<'_>) -> 
                 &mut sync_ctx,
             );
         }
+    }
+    if graph.kind == DiagramKind::Flowchart {
+        path_cleanup::detour_flowchart_paths_around_non_endpoint_nodes(
+            graph,
+            nodes,
+            &mut routed_points,
+            config,
+        );
+        path_cleanup::simplify_flowchart_axis_oscillations(&mut routed_points);
     }
 
     route_labels::apply_label_dummy_anchors(

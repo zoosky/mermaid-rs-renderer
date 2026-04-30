@@ -174,11 +174,24 @@ pub fn resolve_all_label_positions(
     let bounds = Some((layout.width, layout.height));
 
     // Step 1: Resolve center labels (label_anchor).
+    //
+    // Flowchart center labels may need to stack outside the initial routing
+    // rectangle, especially for multiple long parallel edge labels.  A graph
+    // bounds finalization pass runs after label placement and grows/translates
+    // the layout to include labels, so do not clamp flowchart center-label
+    // candidates to the pre-label bounds here.  Endpoint labels remain bounded
+    // because they are visually tied to node sides and do not benefit from
+    // expanding the canvas.
+    let center_bounds = if layout.kind == DiagramKind::Flowchart {
+        None
+    } else {
+        bounds
+    };
     resolve_center_labels(
         &mut layout.edges,
         &layout.nodes,
         &layout.subgraphs,
-        bounds,
+        center_bounds,
         layout.kind,
         theme,
         config,
@@ -694,6 +707,10 @@ fn resolve_center_labels(
         if after_score.improved_by(before_score) {
             edges.clone_from_slice(&candidate_edges);
         }
+        // The final de-overlap candidate can trade a little own-edge clearance
+        // for lower inter-label overlap. Finish with the dedicated route-clearance
+        // nudge so labels do not end up sitting on top of their carrying paths.
+        nudge_flowchart_labels_clear_of_own_paths(edges, bounds);
     }
 }
 
@@ -1092,7 +1109,6 @@ fn deoverlap_flowchart_center_labels(
     // If overlaps still remain, force-separate conflicted pairs by selecting a
     // non-overlapping candidate for one side of the pair.
     let residual_overlap = flowchart_entry_label_overlap_score(&entries, label_pad_x, label_pad_y);
-    let duplicate_label_count = flowchart_duplicate_center_label_count(edges, &entries);
     let use_pair_separation_candidates = entries
         .iter()
         .filter(|entry| {
@@ -1102,8 +1118,8 @@ fn deoverlap_flowchart_center_labels(
         .count()
         * 2
         >= entries.len()
-        && duplicate_label_count >= 3
-        && residual_overlap.total >= 1_800.0;
+        && residual_overlap.count > 0
+        && residual_overlap.total >= 10.0;
     for _ in 0..6 {
         let current_rects: Vec<Rect> = entries
             .iter()
@@ -1190,6 +1206,13 @@ fn deoverlap_flowchart_center_labels(
                                 if ov > LABEL_OVERLAP_WIDE_THRESHOLD {
                                     has_overlap = true;
                                     overlap_penalty += (ov / rect_area) * 140.0;
+                                }
+                            }
+                            for obstacle in &fixed_obstacles {
+                                let ov = overlap_area(&obstacle_rect, obstacle);
+                                if ov > LABEL_OVERLAP_WIDE_THRESHOLD {
+                                    has_overlap = true;
+                                    overlap_penalty += (ov / rect_area) * 180.0;
                                 }
                             }
                             if enforce_no_overlap && has_overlap {
@@ -2524,27 +2547,6 @@ fn flowchart_entry_label_overlap_score(
     CenterLabelOverlapScore { count, total, max }
 }
 
-fn flowchart_duplicate_center_label_count(
-    edges: &[EdgeLayout],
-    entries: &[FlowchartCenterLabelEntry],
-) -> usize {
-    let mut counts: HashMap<String, usize> = HashMap::new();
-    for entry in entries {
-        let Some(label) = edges
-            .get(entry.edge_idx)
-            .and_then(|edge| edge.label.as_ref())
-        else {
-            continue;
-        };
-        let key = label.lines.join("\n");
-        if key.trim().is_empty() {
-            continue;
-        }
-        *counts.entry(key).or_insert(0) += 1;
-    }
-    counts.values().copied().max().unwrap_or(0)
-}
-
 fn flowchart_pair_separation_candidates(
     entry: &FlowchartCenterLabelEntry,
     blocking_rect: Rect,
@@ -3658,12 +3660,12 @@ fn clamp_label_center_to_bounds(
     let max_y = h - label_h * 0.5 - pad_y;
 
     let x = if max_x < min_x {
-        w * 0.5
+        center.0
     } else {
         center.0.clamp(min_x, max_x)
     };
     let y = if max_y < min_y {
-        h * 0.5
+        center.1
     } else {
         center.1.clamp(min_y, max_y)
     };

@@ -487,6 +487,105 @@ fn bidirectional_flowchart_labels_do_not_overlap() {
 }
 
 #[test]
+fn parallel_long_flowchart_labels_expand_bounds_and_do_not_overlap() {
+    let input = r#"flowchart LR
+  A[Short] -->|this is a very long parallel edge label number one| B[Other]
+  A -->|this is a very long parallel edge label number two| B
+  A -->|this is a very long parallel edge label number three| B
+"#;
+    let parsed = parse_mermaid(input).unwrap();
+    let theme = Theme::modern();
+    let config = LayoutConfig::default();
+    let layout = compute_layout(&parsed.graph, &theme, &config);
+
+    let labels: Vec<_> = layout
+        .edges
+        .iter()
+        .filter_map(|edge| {
+            let label = edge.label.as_ref()?;
+            let anchor = edge.label_anchor?;
+            Some((
+                anchor.0 - label.width / 2.0,
+                anchor.1 - label.height / 2.0,
+                label.width,
+                label.height,
+            ))
+        })
+        .collect();
+    assert_eq!(labels.len(), 3, "all parallel labels should be placed");
+    for rect in &labels {
+        assert!(rect.0 >= -0.1, "label extends left of layout: {rect:?}");
+        assert!(rect.1 >= -0.1, "label extends above layout: {rect:?}");
+        assert!(
+            rect.0 + rect.2 <= layout.width + 0.1,
+            "label exceeds layout width: {rect:?} width={}",
+            layout.width
+        );
+        assert!(
+            rect.1 + rect.3 <= layout.height + 0.1,
+            "label exceeds layout height: {rect:?} height={}",
+            layout.height
+        );
+    }
+    for (idx, rect) in labels.iter().enumerate() {
+        for other in labels.iter().skip(idx + 1) {
+            let overlap = rect_overlap_area(*rect, *other);
+            assert!(overlap <= 1.0, "parallel labels overlap by {overlap:.2}px²");
+        }
+    }
+}
+
+#[test]
+fn long_edge_label_flowchart_keeps_top_level_subgraphs_separate() {
+    let input = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("benches")
+            .join("fixtures")
+            .join("flowchart_long_edge_labels.mmd"),
+    )
+    .unwrap();
+    let parsed = parse_mermaid(&input).unwrap();
+    let theme = Theme::modern();
+    let config = LayoutConfig::default();
+    let layout = compute_layout(&parsed.graph, &theme, &config);
+
+    assert_flowchart_visual_invariants(&layout, "flowchart/long_edge_labels.mmd");
+}
+
+#[test]
+fn flowchart_label_collision_fixture_routes_around_non_endpoint_nodes() {
+    let input = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("benches")
+            .join("fixtures")
+            .join("flowchart_label_collision.mmd"),
+    )
+    .unwrap();
+    let parsed = parse_mermaid(&input).unwrap();
+    let theme = Theme::modern();
+    let config = LayoutConfig::default();
+    let layout = compute_layout(&parsed.graph, &theme, &config);
+
+    for edge in &layout.edges {
+        for segment in edge.points.windows(2) {
+            for node in layout.nodes.values() {
+                if node.id == edge.from || node.id == edge.to || node.hidden {
+                    continue;
+                }
+                let rect = (node.x, node.y, node.width, node.height);
+                assert!(
+                    !segment_intersects_rect(segment[0], segment[1], rect),
+                    "edge {}->{} crosses non-endpoint node {}",
+                    edge.from,
+                    edge.to,
+                    node.id
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn sequence_nested_alt_wide_section_labels_do_not_panic() {
     let fixture = "sequence/nested_alt.mmd";
     let input = std::fs::read_to_string(Path::new("tests/fixtures").join(fixture)).unwrap();
