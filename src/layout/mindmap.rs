@@ -474,14 +474,21 @@ fn tidy_tree_edge_points(
     points
 }
 
-/// Clip a line that exits `node` toward `outside` to the node's
-/// axis-aligned bounding rectangle. This is a faithful Rust port of
-/// Mermaid JS's `intersection()` in `mermaid-layout-tidy-tree/src/layout.ts`
-/// — including its quirk where the top/bottom branch returns a point that
-/// does *not* lie on the straight inside→outside line. Reproducing the
-/// quirk is necessary to get the same anchor positions Mermaid renders
-/// (otherwise root edges anchor closer to the visible circle than they do
-/// in Mermaid JS, breaking the uniform-gap visual).
+/// Clip a line that exits `node` toward `outside` to the node's boundary.
+///
+/// For circular nodes (`Circle` / `DoubleCircle`) we use a true
+/// circle-intersection so the anchor lands on the visible circumference at
+/// the angle facing `outside`. This gives uniformly-spaced anchors around
+/// the root for both tidy-tree and lr-tree, rather than the bbox corners
+/// Mermaid JS happens to land on (its renderer attaches a generic
+/// rectangle `intersect` to every shape, but that's a quirk we're free to
+/// improve on without affecting the layout itself).
+///
+/// For every other shape we mirror Mermaid JS's `intersection()` from
+/// `mermaid-layout-tidy-tree/src/layout.ts` verbatim — including its quirk
+/// where the top/bottom branch returns a point that does *not* lie on the
+/// straight inside→outside line. Reproducing that quirk is necessary for
+/// the per-node rectangle anchors to line up with what Mermaid JS renders.
 fn clip_to_rect(
     node: &NodeLayout,
     center: (f32, f32),
@@ -489,6 +496,19 @@ fn clip_to_rect(
 ) -> (f32, f32) {
     if node.width == 0.0 || node.height == 0.0 {
         return outside;
+    }
+    if matches!(
+        node.shape,
+        crate::ir::NodeShape::Circle | crate::ir::NodeShape::DoubleCircle
+    ) {
+        let dx = outside.0 - center.0;
+        let dy = outside.1 - center.1;
+        let len = (dx * dx + dy * dy).sqrt();
+        if len < 1e-3 {
+            return center;
+        }
+        let radius = (node.width.min(node.height)) / 2.0;
+        return (center.0 + dx / len * radius, center.1 + dy / len * radius);
     }
     let x = center.0;
     let y = center.1;
