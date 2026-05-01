@@ -1515,6 +1515,14 @@ fn merge_init_config(mut config: Config, init: serde_json::Value) -> Config {
             config.layout.c4.external_component_queue_border_color = val;
         }
     }
+    if let Some(mindmap) = init.get("mindmap").and_then(|v| v.as_object()) {
+        if let Some(val) = mindmap
+            .get("layoutAlgorithm")
+            .and_then(|v| v.as_str())
+        {
+            config.layout.mindmap.layout_algorithm = val.to_string();
+        }
+    }
     config.render.background = config.theme.background.clone();
     config
 }

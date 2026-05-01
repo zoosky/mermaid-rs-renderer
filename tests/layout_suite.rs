@@ -368,6 +368,8 @@ fn render_all_fixtures() {
         "journey/basic.mmd",
         "kanban/basic.mmd",
         "mindmap/basic.mmd",
+        "mindmap/tidy_tree.mmd",
+        "mindmap/lr_tree.mmd",
         "packet/basic.mmd",
         "pie/basic.mmd",
         "quadrant/basic.mmd",
