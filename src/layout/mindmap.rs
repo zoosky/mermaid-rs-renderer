@@ -358,6 +358,11 @@ fn place_tidy_tree(
 
     let h_gap = horizontal_gap.max(1.0);
     let v_gap = vertical_gap.max(1.0);
+    // Mermaid JS's `treeSpacing = rootNode.width / 2 + 30` adds an extra
+    // 30px clearance between the root shape and its first-level children
+    // beyond the regular depth gap, giving the curveBasis edges room to
+    // sweep around the root.
+    let root_extra_pad = 30.0_f32;
 
     if !right_children.is_empty() {
         let positions = layout_horizontal_subtrees(
@@ -367,7 +372,7 @@ fn place_tidy_tree(
             h_gap,
             v_gap,
         );
-        let edge_x = root_center.0 + root_width / 2.0 + h_gap;
+        let edge_x = root_center.0 + root_width / 2.0 + h_gap + root_extra_pad;
         for (id, dx, cy) in positions {
             if let Some(node) = nodes.get_mut(&id) {
                 node.x = edge_x + dx;
@@ -385,7 +390,7 @@ fn place_tidy_tree(
             h_gap,
             v_gap,
         );
-        let edge_x = root_center.0 - root_width / 2.0 - h_gap;
+        let edge_x = root_center.0 - root_width / 2.0 - h_gap - root_extra_pad;
         for (id, dx, cy) in positions {
             if let Some(node) = nodes.get_mut(&id) {
                 node.x = edge_x - dx - node.width;
@@ -401,7 +406,10 @@ fn place_tidy_tree(
 /// Build the four-point control polyline that Mermaid JS feeds to its
 /// `curveBasis` line generator for tidy-tree edges. The two extra middle
 /// points share the source's and target's `y` respectively, so a B-spline
-/// through them leaves and arrives at the nodes nearly horizontally.
+/// through them leaves and arrives at the nodes nearly horizontally. The
+/// start/end points are then clipped to the source/target shape boundary
+/// using the adjacent middle point as the outside reference, matching
+/// Mermaid JS's second-pass intersection in `calculateEdgePositions`.
 fn tidy_tree_edge_points(
     from_layout: &NodeLayout,
     to_layout: &NodeLayout,
@@ -431,20 +439,66 @@ fn tidy_tree_edge_points(
         MindmapSide::Left => -1.0,
     };
 
-    // Source intersection point along the side facing the target.
-    let from_edge_x = from_center.0 + direction * from_layout.width / 2.0;
-    let to_edge_x = to_center.0 - direction * to_layout.width / 2.0;
-    let start = (from_edge_x, from_center.1);
+    // Mid points pushed outward by `intersection_shift` along the growth axis.
     let mid_a = (
-        from_edge_x + direction * intersection_shift,
+        from_center.0 + direction * (from_layout.width / 2.0 + intersection_shift),
         from_center.1,
     );
     let mid_b = (
-        to_edge_x - direction * intersection_shift,
+        to_center.0 - direction * (to_layout.width / 2.0 + intersection_shift),
         to_center.1,
     );
-    let end = (to_edge_x, to_center.1);
+
+    // Endpoints clipped to the source/target shape boundary along the line
+    // toward the adjacent middle point. This spreads root-edge starts around
+    // the circumference instead of stacking them on the horizontal midline.
+    let start = clip_to_shape(from_layout, from_center, mid_a);
+    let end = clip_to_shape(to_layout, to_center, mid_b);
+
     vec![start, mid_a, mid_b, end]
+}
+
+/// Clip a line that exits `node` toward `outside` to the node's shape
+/// boundary. Circles and the default mindmap shape use the inscribed-circle
+/// intersection (matching Mermaid JS's `computeCircleEdgeIntersection`);
+/// every other shape uses an axis-aligned-rectangle intersection.
+fn clip_to_shape(
+    node: &NodeLayout,
+    center: (f32, f32),
+    outside: (f32, f32),
+) -> (f32, f32) {
+    let dx = outside.0 - center.0;
+    let dy = outside.1 - center.1;
+    let len = (dx * dx + dy * dy).sqrt();
+    if len < 1e-3 {
+        return center;
+    }
+    let nx = dx / len;
+    let ny = dy / len;
+    let half_w = node.width / 2.0;
+    let half_h = node.height / 2.0;
+    match node.shape {
+        crate::ir::NodeShape::Circle | crate::ir::NodeShape::DoubleCircle => {
+            let radius = half_w.min(half_h);
+            (center.0 + nx * radius, center.1 + ny * radius)
+        }
+        _ => {
+            // Rectangle intersection: scale the unit vector so it just hits
+            // either the horizontal or vertical edge.
+            let tx = if nx.abs() > 1e-6 {
+                half_w / nx.abs()
+            } else {
+                f32::INFINITY
+            };
+            let ty = if ny.abs() > 1e-6 {
+                half_h / ny.abs()
+            } else {
+                f32::INFINITY
+            };
+            let t = tx.min(ty);
+            (center.0 + nx * t, center.1 + ny * t)
+        }
+    }
 }
 
 /// Run the tidy-tree algorithm over a forest rooted at the given children.
@@ -883,6 +937,12 @@ pub(super) fn compute_mindmap_layout(
     let mut side_map: HashMap<String, MindmapSide> = HashMap::new();
     let mut curve_edges = false;
     if let Some(root_id) = root_id.as_ref() {
+        // Match Mermaid JS's tidy-tree spacing exactly: BoundingBox(20, 40)
+        // for sibling/depth gaps and a +30 root padding via `treeSpacing`.
+        // The tidy algorithm packs efficiently on its own, so we ignore the
+        // density scaling that the radial layout uses.
+        let tidy_h_gap = 40.0_f32;
+        let tidy_v_gap = 20.0_f32;
         side_map = match algorithm.as_str() {
             "tidy-tree" | "tidy_tree" | "tidytree" => {
                 curve_edges = true;
@@ -890,8 +950,8 @@ pub(super) fn compute_mindmap_layout(
                     root_id,
                     &info_map,
                     &mut nodes,
-                    horizontal_gap,
-                    vertical_gap,
+                    tidy_h_gap,
+                    tidy_v_gap,
                     false,
                 )
             }
@@ -901,8 +961,8 @@ pub(super) fn compute_mindmap_layout(
                     root_id,
                     &info_map,
                     &mut nodes,
-                    horizontal_gap,
-                    vertical_gap,
+                    tidy_h_gap,
+                    tidy_v_gap,
                     true,
                 )
             }
