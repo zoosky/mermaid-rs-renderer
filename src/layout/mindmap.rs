@@ -255,7 +255,7 @@ fn place_radial_layout(
     nodes: &mut BTreeMap<String, NodeLayout>,
     horizontal_gap: f32,
     vertical_gap: f32,
-) {
+) -> HashMap<String, MindmapSide> {
     let mut subtree_heights: HashMap<String, f32> = HashMap::new();
     mindmap_subtree_height(root_id, info_map, nodes, &mut subtree_heights, vertical_gap);
     let root_center = (0.0_f32, 0.0_f32);
@@ -302,12 +302,25 @@ fn place_radial_layout(
         horizontal_gap,
         vertical_gap,
     );
+    HashMap::new()
+}
+
+/// Lay out a mindmap using the non-layered tidy-tree algorithm. When
+/// `lr_only` is true, every branch grows to the right of the root (matching
+#[derive(Copy, Clone, Debug)]
+enum MindmapSide {
+    Left,
+    Right,
 }
 
 /// Lay out a mindmap using the non-layered tidy-tree algorithm. When
 /// `lr_only` is true, every branch grows to the right of the root (matching
 /// the requested `lr-tree` algorithm). Otherwise children alternate between
 /// the left and right halves like Mermaid JS's `tidy-tree` algorithm.
+///
+/// Returns a map from each non-root node id to the side of the root it
+/// landed on, so the caller can route edges with the same `curveBasis` style
+/// curves Mermaid JS uses for `tidy-tree` mindmaps.
 fn place_tidy_tree(
     root_id: &str,
     info_map: &HashMap<String, MindmapNodeInfo>,
@@ -315,7 +328,8 @@ fn place_tidy_tree(
     horizontal_gap: f32,
     vertical_gap: f32,
     lr_only: bool,
-) {
+) -> HashMap<String, MindmapSide> {
+    let mut side_map: HashMap<String, MindmapSide> = HashMap::new();
     let root_center = (0.0_f32, 0.0_f32);
     let root_width = nodes.get(root_id).map(|n| n.width).unwrap_or(0.0);
 
@@ -325,7 +339,7 @@ fn place_tidy_tree(
     }
 
     let Some(info) = info_map.get(root_id) else {
-        return;
+        return side_map;
     };
 
     let mut left_children: Vec<String> = Vec::new();
@@ -359,6 +373,7 @@ fn place_tidy_tree(
                 node.x = edge_x + dx;
                 node.y = root_center.1 + cy - node.height / 2.0;
             }
+            side_map.insert(id, MindmapSide::Right);
         }
     }
 
@@ -376,8 +391,60 @@ fn place_tidy_tree(
                 node.x = edge_x - dx - node.width;
                 node.y = root_center.1 + cy - node.height / 2.0;
             }
+            side_map.insert(id, MindmapSide::Left);
         }
     }
+
+    side_map
+}
+
+/// Build the four-point control polyline that Mermaid JS feeds to its
+/// `curveBasis` line generator for tidy-tree edges. The two extra middle
+/// points share the source's and target's `y` respectively, so a B-spline
+/// through them leaves and arrives at the nodes nearly horizontally.
+fn tidy_tree_edge_points(
+    from_layout: &NodeLayout,
+    to_layout: &NodeLayout,
+    side_map: &HashMap<String, MindmapSide>,
+    from_id: &str,
+    to_id: &str,
+) -> Vec<(f32, f32)> {
+    let from_center = (
+        from_layout.x + from_layout.width / 2.0,
+        from_layout.y + from_layout.height / 2.0,
+    );
+    let to_center = (
+        to_layout.x + to_layout.width / 2.0,
+        to_layout.y + to_layout.height / 2.0,
+    );
+    let intersection_shift = 30.0_f32;
+
+    // Side of the *child* (target) determines the growth direction. Edges from
+    // the root inherit that direction.
+    let side = side_map
+        .get(to_id)
+        .copied()
+        .or_else(|| side_map.get(from_id).copied())
+        .unwrap_or(MindmapSide::Right);
+    let direction = match side {
+        MindmapSide::Right => 1.0,
+        MindmapSide::Left => -1.0,
+    };
+
+    // Source intersection point along the side facing the target.
+    let from_edge_x = from_center.0 + direction * from_layout.width / 2.0;
+    let to_edge_x = to_center.0 - direction * to_layout.width / 2.0;
+    let start = (from_edge_x, from_center.1);
+    let mid_a = (
+        from_edge_x + direction * intersection_shift,
+        from_center.1,
+    );
+    let mid_b = (
+        to_edge_x - direction * intersection_shift,
+        to_center.1,
+    );
+    let end = (to_edge_x, to_center.1);
+    vec![start, mid_a, mid_b, end]
 }
 
 /// Run the tidy-tree algorithm over a forest rooted at the given children.
@@ -813,24 +880,32 @@ pub(super) fn compute_mindmap_layout(
     vertical_gap = (vertical_gap * density_scale).max(theme.font_size * 0.9);
 
     let algorithm = config.mindmap.layout_algorithm.to_ascii_lowercase();
+    let mut side_map: HashMap<String, MindmapSide> = HashMap::new();
+    let mut curve_edges = false;
     if let Some(root_id) = root_id.as_ref() {
-        match algorithm.as_str() {
-            "tidy-tree" | "tidy_tree" | "tidytree" => place_tidy_tree(
-                root_id,
-                &info_map,
-                &mut nodes,
-                horizontal_gap,
-                vertical_gap,
-                false,
-            ),
-            "lr-tree" | "lr_tree" | "lrtree" => place_tidy_tree(
-                root_id,
-                &info_map,
-                &mut nodes,
-                horizontal_gap,
-                vertical_gap,
-                true,
-            ),
+        side_map = match algorithm.as_str() {
+            "tidy-tree" | "tidy_tree" | "tidytree" => {
+                curve_edges = true;
+                place_tidy_tree(
+                    root_id,
+                    &info_map,
+                    &mut nodes,
+                    horizontal_gap,
+                    vertical_gap,
+                    false,
+                )
+            }
+            "lr-tree" | "lr_tree" | "lrtree" => {
+                curve_edges = true;
+                place_tidy_tree(
+                    root_id,
+                    &info_map,
+                    &mut nodes,
+                    horizontal_gap,
+                    vertical_gap,
+                    true,
+                )
+            }
             _ => place_radial_layout(
                 root_id,
                 &info_map,
@@ -838,7 +913,7 @@ pub(super) fn compute_mindmap_layout(
                 horizontal_gap,
                 vertical_gap,
             ),
-        }
+        };
     }
 
     let mut edges = Vec::new();
@@ -870,6 +945,11 @@ pub(super) fn compute_mindmap_layout(
             config.mindmap.edge_depth_base_width
                 + config.mindmap.edge_depth_step * (edge_depth as f32 + 1.0),
         );
+        let points = if curve_edges {
+            tidy_tree_edge_points(from_layout, to_layout, &side_map, &edge.from, &edge.to)
+        } else {
+            vec![from_center, to_center]
+        };
         edges.push(EdgeLayout {
             from: edge.from.clone(),
             to: edge.to.clone(),
@@ -879,7 +959,7 @@ pub(super) fn compute_mindmap_layout(
             label_anchor: None,
             start_label_anchor: None,
             end_label_anchor: None,
-            points: vec![from_center, to_center],
+            points,
             directed: false,
             arrow_start: false,
             arrow_end: false,

@@ -969,7 +969,11 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
             _ => 2.0,
         };
         for (edge_idx, edge) in layout.edges.iter().enumerate() {
-            let d = points_to_path(&edge.points);
+            let d = if layout.kind == crate::ir::DiagramKind::Mindmap && edge.points.len() > 2 {
+                basis_curve_path(&edge.points)
+            } else {
+                points_to_path(&edge.points)
+            };
             let mut stroke = theme.line_color.clone();
             let edge_id = edge_dom_id(edge_idx);
             let (mut dash, mut stroke_width) = match edge.style {
@@ -1565,6 +1569,70 @@ fn points_to_path(points: &[(f32, f32)]) -> String {
     for (x, y) in deduped.iter().skip(1) {
         d.push_str(&format!(" L {:.3},{:.3}", x, y));
     }
+    d
+}
+
+/// Port of d3's `curveBasis` (open uniform cubic B-spline). Given control
+/// points `P0..Pn-1`, emits an SVG path that mirrors d3's output exactly:
+/// `M P0` → `L (5*P0 + P1)/6` → `C (2*Pi-1+Pi)/3, (Pi-1+2*Pi)/3, (Pi-1+4*Pi+Pi+1)/6`
+/// for the interior, finishing with a closing cubic to `(Pn-2 + 5*Pn-1)/6`
+/// and a `L Pn-1`. Used by tidy-tree / lr-tree mindmap edges to match the
+/// curved style Mermaid JS produces.
+fn basis_curve_path(points: &[(f32, f32)]) -> String {
+    let pts = dedupe_points(points);
+    let n = pts.len();
+    if n == 0 {
+        return String::new();
+    }
+    if n == 1 {
+        return format!("M {:.3},{:.3}", pts[0].0, pts[0].1);
+    }
+    if n == 2 {
+        return format!(
+            "M {:.3},{:.3} L {:.3},{:.3}",
+            pts[0].0, pts[0].1, pts[1].0, pts[1].1
+        );
+    }
+    let mut d = format!("M {:.3},{:.3}", pts[0].0, pts[0].1);
+    let p0 = pts[0];
+    let p1 = pts[1];
+    d.push_str(&format!(
+        " L {:.3},{:.3}",
+        (5.0 * p0.0 + p1.0) / 6.0,
+        (5.0 * p0.1 + p1.1) / 6.0
+    ));
+    let mut x0 = p0.0;
+    let mut y0 = p0.1;
+    let mut x1 = p1.0;
+    let mut y1 = p1.1;
+    for i in 2..n {
+        let (x, y) = pts[i];
+        d.push_str(&format!(
+            " C {:.3},{:.3} {:.3},{:.3} {:.3},{:.3}",
+            (2.0 * x0 + x1) / 3.0,
+            (2.0 * y0 + y1) / 3.0,
+            (x0 + 2.0 * x1) / 3.0,
+            (y0 + 2.0 * y1) / 3.0,
+            (x0 + 4.0 * x1 + x) / 6.0,
+            (y0 + 4.0 * y1 + y) / 6.0
+        ));
+        x0 = x1;
+        y0 = y1;
+        x1 = x;
+        y1 = y;
+    }
+    // Closing segment, matching d3's lineEnd for `case 3`: another cubic
+    // pretending the final point is repeated, then a straight line to it.
+    d.push_str(&format!(
+        " C {:.3},{:.3} {:.3},{:.3} {:.3},{:.3}",
+        (2.0 * x0 + x1) / 3.0,
+        (2.0 * y0 + y1) / 3.0,
+        (x0 + 2.0 * x1) / 3.0,
+        (y0 + 2.0 * y1) / 3.0,
+        (x0 + 5.0 * x1) / 6.0,
+        (y0 + 5.0 * y1) / 6.0
+    ));
+    d.push_str(&format!(" L {:.3},{:.3}", x1, y1));
     d
 }
 
