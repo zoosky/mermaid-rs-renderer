@@ -313,6 +313,11 @@ enum MindmapSide {
     Right,
 }
 
+/// Pixel offset between the visible boundary of a circular root and the
+/// edge anchor. Pushed outward so the curveBasis spline visibly leaves the
+/// circumference instead of touching it.
+const CIRCLE_ANCHOR_GAP: f32 = 15.0;
+
 /// Lay out a mindmap using the non-layered tidy-tree algorithm. When
 /// `lr_only` is true, every branch grows to the right of the root (matching
 /// the requested `lr-tree` algorithm). Otherwise children alternate between
@@ -507,7 +512,9 @@ fn clip_to_rect(
         if len < 1e-3 {
             return center;
         }
-        let radius = (node.width.min(node.height)) / 2.0;
+        // Anchor a small distance *outside* the circle so the curveBasis
+        // edge visibly leaves the circumference instead of touching it.
+        let radius = (node.width.min(node.height)) / 2.0 + CIRCLE_ANCHOR_GAP;
         return (center.0 + dx / len * radius, center.1 + dy / len * radius);
     }
     let x = center.0;
