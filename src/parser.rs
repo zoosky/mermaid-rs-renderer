@@ -302,10 +302,18 @@ fn preprocess_input(input: &str) -> Result<(Vec<String>, Option<serde_json::Valu
 fn preprocess_input_keep_indent(input: &str) -> Result<(Vec<String>, Option<serde_json::Value>)> {
     let mut init_config: Option<serde_json::Value> = None;
     let mut lines = Vec::new();
+    let mut in_frontmatter = false;
 
     for raw_line in input.lines() {
         let trimmed_line = raw_line.trim();
         if trimmed_line.is_empty() {
+            continue;
+        }
+        if trimmed_line == "---" {
+            in_frontmatter = !in_frontmatter;
+            continue;
+        }
+        if in_frontmatter {
             continue;
         }
         if let Some(value) = parse_init_directive(trimmed_line)? {
@@ -6327,6 +6335,25 @@ A["foo & bar"] & B --> C"#;
             err.to_string().contains("invalid Mermaid init directive"),
             "unexpected error: {err:#}"
         );
+    }
+
+    #[test]
+    fn preprocess_keep_indent_skips_yaml_frontmatter() {
+        let input = "---\ntitle: Roadmap\ndisplayMode: compact\n---\nmindmap\n  root\n    child";
+        let (lines, init_config) = preprocess_input_keep_indent(input).unwrap();
+
+        assert_eq!(init_config, None);
+        assert_eq!(lines, vec!["mindmap", "  root", "    child"]);
+    }
+
+    #[test]
+    fn parse_indent_sensitive_diagram_with_frontmatter() {
+        let input = "---\ntitle: Roadmap\n---\nmindmap\n  root\n    child";
+        let parsed = parse_mermaid(input).unwrap();
+
+        assert_eq!(parsed.graph.kind, DiagramKind::Mindmap);
+        assert!(parsed.graph.nodes.contains_key("root"));
+        assert!(parsed.graph.nodes.contains_key("child"));
     }
 
     #[test]
