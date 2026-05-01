@@ -92,6 +92,7 @@
 pub mod cli;
 pub mod config;
 mod edge_geometry;
+pub mod error;
 pub mod ir;
 pub mod layout;
 pub mod layout_dump;
@@ -99,9 +100,11 @@ pub mod parser;
 pub mod render;
 mod text_metrics;
 pub mod theme;
+pub mod validator;
 
 // Re-export commonly used types at crate root for ergonomic library usage
 pub use config::{Config, LayoutConfig, RenderConfig};
+pub use error::ParseError;
 pub use ir::{
     DiagramKind, Direction, Edge, EdgeArrowhead, EdgeDecoration, EdgeStyle, Graph, Node, NodeLink,
     NodeShape, SequenceActivation, SequenceActivationKind, SequenceBox, StateNote,
@@ -216,10 +219,38 @@ pub fn render(input: &str) -> anyhow::Result<String> {
 /// let svg = render_with_options("flowchart LR; A-->B", opts).unwrap();
 /// ```
 pub fn render_with_options(input: &str, options: RenderOptions) -> anyhow::Result<String> {
-    let parsed = parse_mermaid(input)?;
+    let parsed = parse_mermaid_strict(input)?;
     let layout = compute_layout(&parsed.graph, &options.theme, &options.layout);
     let svg = render_svg(&layout, &options.theme, &options.layout);
     Ok(svg)
+}
+
+/// Parse a Mermaid diagram with typed parser diagnostics.
+///
+/// This is the structured-error counterpart to [`parse_mermaid`]. It runs a
+/// preflight validation pass that catches common malformed-input cases and
+/// reports them as [`ParseError`] variants, then delegates to the existing
+/// parser for valid input.
+pub fn parse_mermaid_strict(input: &str) -> Result<ParseOutput, ParseError> {
+    validator::validate(input)?;
+    parse_mermaid(input).map_err(|err| ParseError::UnexpectedToken {
+        line: 1,
+        col: 1,
+        found: input
+            .lines()
+            .find(|line| !line.trim().is_empty())
+            .map(str::trim)
+            .unwrap_or("<empty>")
+            .to_string(),
+        expected: err.to_string(),
+    })
+}
+
+/// Render a Mermaid diagram to SVG with typed parser diagnostics.
+pub fn render_strict(input: &str, options: RenderOptions) -> Result<String, ParseError> {
+    let parsed = parse_mermaid_strict(input)?;
+    let layout = compute_layout(&parsed.graph, &options.theme, &options.layout);
+    Ok(render_svg(&layout, &options.theme, &options.layout))
 }
 
 /// Result of rendering with timing information.
