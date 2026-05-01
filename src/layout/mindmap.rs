@@ -403,13 +403,16 @@ fn place_tidy_tree(
     side_map
 }
 
-/// Build the four-point control polyline that Mermaid JS feeds to its
-/// `curveBasis` line generator for tidy-tree edges. The two extra middle
-/// points share the source's and target's `y` respectively, so a B-spline
-/// through them leaves and arrives at the nodes nearly horizontally. The
-/// start/end points are then clipped to the source/target shape boundary
-/// using the adjacent middle point as the outside reference, matching
-/// Mermaid JS's second-pass intersection in `calculateEdgePositions`.
+/// Build the control polyline that Mermaid JS feeds to its `curveBasis`
+/// line generator for tidy-tree edges.
+///
+/// We deliberately match the *older* (pre-#7572) Mermaid layout where
+/// root-sourced edges only push the *target*'s middle point (`mid_b` at the
+/// target's `y`). The start anchor is then the intersection of the line
+/// `root_center → mid_b` with the root's bounding rectangle, which lets
+/// each child's edge anchor on a different side / corner of the root box
+/// instead of stacking on the horizontal midline. Non-root edges use the
+/// usual four-point routing so the curve leaves the source horizontally.
 fn tidy_tree_edge_points(
     from_layout: &NodeLayout,
     to_layout: &NodeLayout,
@@ -427,8 +430,8 @@ fn tidy_tree_edge_points(
     );
     let intersection_shift = 30.0_f32;
 
-    // Side of the *child* (target) determines the growth direction. Edges from
-    // the root inherit that direction.
+    let from_is_root = !side_map.contains_key(from_id);
+    let to_is_root = !side_map.contains_key(to_id);
     let side = side_map
         .get(to_id)
         .copied()
@@ -439,30 +442,46 @@ fn tidy_tree_edge_points(
         MindmapSide::Left => -1.0,
     };
 
-    // Mid points pushed outward by `intersection_shift` along the growth axis.
-    let mid_a = (
-        from_center.0 + direction * (from_layout.width / 2.0 + intersection_shift),
-        from_center.1,
-    );
-    let mid_b = (
-        to_center.0 - direction * (to_layout.width / 2.0 + intersection_shift),
-        to_center.1,
-    );
+    let mut points: Vec<(f32, f32)> = Vec::with_capacity(4);
+    // Placeholder for start; clipped after the middle points are known.
+    points.push(from_center);
+    if !from_is_root {
+        // mid_a — sits at the source's center y so the spline leaves the
+        // source rectangle horizontally.
+        points.push((
+            from_center.0 + direction * (from_layout.width / 2.0 + intersection_shift),
+            from_center.1,
+        ));
+    }
+    if !to_is_root {
+        // mid_b — sits at the target's center y so the spline arrives
+        // horizontally at the target rectangle.
+        points.push((
+            to_center.0 - direction * (to_layout.width / 2.0 + intersection_shift),
+            to_center.1,
+        ));
+    }
+    points.push(to_center);
 
-    // Endpoints clipped to the source/target shape boundary along the line
-    // toward the adjacent middle point. This spreads root-edge starts around
-    // the circumference instead of stacking them on the horizontal midline.
-    let start = clip_to_shape(from_layout, from_center, mid_a);
-    let end = clip_to_shape(to_layout, to_center, mid_b);
-
-    vec![start, mid_a, mid_b, end]
+    // Recompute the start anchor toward the next control point and the end
+    // anchor toward the previous control point, matching Mermaid JS's
+    // post-loop second-pass intersection in `calculateEdgePositions`.
+    let second = points[1];
+    points[0] = clip_to_rect(from_layout, from_center, second);
+    let last = points.len() - 1;
+    let second_last = points[last - 1];
+    points[last] = clip_to_rect(to_layout, to_center, second_last);
+    points
 }
 
-/// Clip a line that exits `node` toward `outside` to the node's shape
-/// boundary. Circles and the default mindmap shape use the inscribed-circle
-/// intersection (matching Mermaid JS's `computeCircleEdgeIntersection`);
-/// every other shape uses an axis-aligned-rectangle intersection.
-fn clip_to_shape(
+/// Clip a line that exits `node` toward `outside` to the node's
+/// axis-aligned bounding rectangle. Mermaid JS uses the bounding box
+/// intersection for every shape — including the circular mindmap root —
+/// because the renderer attaches a generic rectangle `intersect` method
+/// based on the rendered SVG `getBBox()`. Matching that lets the edge
+/// anchors fan around the root instead of clustering on its horizontal
+/// midline.
+fn clip_to_rect(
     node: &NodeLayout,
     center: (f32, f32),
     outside: (f32, f32),
@@ -477,28 +496,18 @@ fn clip_to_shape(
     let ny = dy / len;
     let half_w = node.width / 2.0;
     let half_h = node.height / 2.0;
-    match node.shape {
-        crate::ir::NodeShape::Circle | crate::ir::NodeShape::DoubleCircle => {
-            let radius = half_w.min(half_h);
-            (center.0 + nx * radius, center.1 + ny * radius)
-        }
-        _ => {
-            // Rectangle intersection: scale the unit vector so it just hits
-            // either the horizontal or vertical edge.
-            let tx = if nx.abs() > 1e-6 {
-                half_w / nx.abs()
-            } else {
-                f32::INFINITY
-            };
-            let ty = if ny.abs() > 1e-6 {
-                half_h / ny.abs()
-            } else {
-                f32::INFINITY
-            };
-            let t = tx.min(ty);
-            (center.0 + nx * t, center.1 + ny * t)
-        }
-    }
+    let tx = if nx.abs() > 1e-6 {
+        half_w / nx.abs()
+    } else {
+        f32::INFINITY
+    };
+    let ty = if ny.abs() > 1e-6 {
+        half_h / ny.abs()
+    } else {
+        f32::INFINITY
+    };
+    let t = tx.min(ty);
+    (center.0 + nx * t, center.1 + ny * t)
 }
 
 /// Run the tidy-tree algorithm over a forest rooted at the given children.
