@@ -62,6 +62,15 @@ const SEQUENCE_VIEWBOX_PAD_TOP: f32 = 10.0;
 const SEQUENCE_VIEWBOX_PAD_BOTTOM: f32 = 11.0;
 
 pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> String {
+    render_svg_with_dimensions(layout, theme, config, None)
+}
+
+pub fn render_svg_with_dimensions(
+    layout: &Layout,
+    theme: &Theme,
+    config: &LayoutConfig,
+    dimensions: Option<(f32, f32)>,
+) -> String {
     let mut svg = String::new();
     let state_font_size = if layout.kind == crate::ir::DiagramKind::State {
         theme.font_size * 0.85
@@ -173,8 +182,17 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
     let preferred_ratio = config
         .preferred_aspect_ratio
         .filter(|ratio| ratio.is_finite() && *ratio > 0.0);
-    let (target_width, target_height) =
+    let (mut target_width, mut target_height) =
         fit_dimensions_to_preferred_ratio(width, height, preferred_ratio);
+    if let Some((width, height)) = dimensions
+        && width.is_finite()
+        && height.is_finite()
+        && width > 0.0
+        && height > 0.0
+    {
+        target_width = width;
+        target_height = height;
+    }
 
     let mut width_attr = target_width.to_string();
     let mut height_attr = target_height.to_string();
@@ -182,7 +200,7 @@ pub fn render_svg(layout: &Layout, theme: &Theme, config: &LayoutConfig) -> Stri
     let preferred_ratio_style = preferred_ratio
         .map(|ratio| format!("aspect-ratio: {:.6};", ratio))
         .unwrap_or_default();
-    if !matches!(layout.diagram, DiagramData::Error(_)) {
+    if dimensions.is_none() && !matches!(layout.diagram, DiagramData::Error(_)) {
         if let DiagramData::C4(c4) = &layout.diagram {
             if c4.use_max_width {
                 width_attr = "100%".to_string();
