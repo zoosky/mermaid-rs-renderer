@@ -475,39 +475,91 @@ fn tidy_tree_edge_points(
 }
 
 /// Clip a line that exits `node` toward `outside` to the node's
-/// axis-aligned bounding rectangle. Mermaid JS uses the bounding box
-/// intersection for every shape — including the circular mindmap root —
-/// because the renderer attaches a generic rectangle `intersect` method
-/// based on the rendered SVG `getBBox()`. Matching that lets the edge
-/// anchors fan around the root instead of clustering on its horizontal
-/// midline.
+/// axis-aligned bounding rectangle. This is a faithful Rust port of
+/// Mermaid JS's `intersection()` in `mermaid-layout-tidy-tree/src/layout.ts`
+/// — including its quirk where the top/bottom branch returns a point that
+/// does *not* lie on the straight inside→outside line. Reproducing the
+/// quirk is necessary to get the same anchor positions Mermaid renders
+/// (otherwise root edges anchor closer to the visible circle than they do
+/// in Mermaid JS, breaking the uniform-gap visual).
 fn clip_to_rect(
     node: &NodeLayout,
     center: (f32, f32),
     outside: (f32, f32),
 ) -> (f32, f32) {
-    let dx = outside.0 - center.0;
-    let dy = outside.1 - center.1;
-    let len = (dx * dx + dy * dy).sqrt();
-    if len < 1e-3 {
-        return center;
+    if node.width == 0.0 || node.height == 0.0 {
+        return outside;
     }
-    let nx = dx / len;
-    let ny = dy / len;
-    let half_w = node.width / 2.0;
-    let half_h = node.height / 2.0;
-    let tx = if nx.abs() > 1e-6 {
-        half_w / nx.abs()
+    let x = center.0;
+    let y = center.1;
+    let inside = center;
+    let w = node.width / 2.0;
+    let h = node.height / 2.0;
+    let big_q = (outside.1 - inside.1).abs();
+    let big_r = (outside.0 - inside.0).abs();
+
+    // Branch on which side of the rect the line crosses first. The
+    // condition `|Δy|·w > |Δx|·h` is equivalent to "the line is steeper than
+    // the rect's diagonal" — i.e., it exits through the top or bottom edge.
+    if (y - outside.1).abs() * w > (x - outside.0).abs() * h {
+        // Top / bottom edge.
+        let q = if inside.1 < outside.1 {
+            outside.1 - h - y
+        } else {
+            y - h - outside.1
+        };
+        let r = if big_q == 0.0 { 0.0 } else { (big_r * q) / big_q };
+        let mut res_x = if inside.0 < outside.0 {
+            inside.0 + r
+        } else {
+            inside.0 - big_r + r
+        };
+        let mut res_y = if inside.1 < outside.1 {
+            inside.1 + big_q - q
+        } else {
+            inside.1 - big_q + q
+        };
+        if r == 0.0 {
+            res_x = outside.0;
+            res_y = outside.1;
+        }
+        if big_r == 0.0 {
+            res_x = outside.0;
+        }
+        if big_q == 0.0 {
+            res_y = outside.1;
+        }
+        (res_x, res_y)
     } else {
-        f32::INFINITY
-    };
-    let ty = if ny.abs() > 1e-6 {
-        half_h / ny.abs()
-    } else {
-        f32::INFINITY
-    };
-    let t = tx.min(ty);
-    (center.0 + nx * t, center.1 + ny * t)
+        // Left / right edge.
+        let r = if inside.0 < outside.0 {
+            outside.0 - w - x
+        } else {
+            x - w - outside.0
+        };
+        let q = if big_r == 0.0 { 0.0 } else { (big_q * r) / big_r };
+        let mut res_x = if inside.0 < outside.0 {
+            inside.0 + big_r - r
+        } else {
+            inside.0 - big_r + r
+        };
+        let mut res_y = if inside.1 < outside.1 {
+            inside.1 + q
+        } else {
+            inside.1 - q
+        };
+        if r == 0.0 {
+            res_x = outside.0;
+            res_y = outside.1;
+        }
+        if big_r == 0.0 {
+            res_x = outside.0;
+        }
+        if big_q == 0.0 {
+            res_y = outside.1;
+        }
+        (res_x, res_y)
+    }
 }
 
 /// Run the tidy-tree algorithm over a forest rooted at the given children.
@@ -592,32 +644,42 @@ fn layout_horizontal_subtrees(
     // Translate & rotate: tidy.x is the position along the perpendicular to
     // the growth axis, tidy.y the depth. After 90° rotation the depth becomes
     // horizontal distance from the root edge and tidy.x becomes vertical center.
-    let mut min_center_y = f32::MAX;
-    let mut max_center_y = f32::MIN;
-    let mut raw: Vec<(String, f32, f32, f32)> = Vec::new();
+    //
+    // Center the resulting tree using *only* the first-level subtree roots'
+    // y span — matching Mermaid JS's `combineAndPositionTrees`, which picks
+    // `treeCenterY` from the children of the virtual root rather than from
+    // every descendant. This keeps each first-level child near the global
+    // root's center y so the curved edges leaving the root stay short and
+    // their gap to the root shape stays uniform.
+    let mut first_level_min_y = f32::MAX;
+    let mut first_level_max_y = f32::MIN;
+    let mut raw: Vec<(String, f32, f32)> = Vec::new();
     for (idx, id) in id_lookup.iter().enumerate() {
         if id.is_empty() || idx == virt {
             continue;
         }
         let n = &arena.nodes[idx];
-        // Center in the transposed frame:
         let center_along = n.x + n.w / 2.0; // → vertical center after rotation
         let depth_offset = n.y;             // → horizontal distance from root edge
-        // Width/height in original frame:
         let original_height = (n.w - vertical_gap).max(0.0);
-        let original_width = (n.h - horizontal_gap).max(0.0);
-        let _ = original_width;
-        min_center_y = min_center_y.min(center_along - original_height / 2.0);
-        max_center_y = max_center_y.max(center_along + original_height / 2.0);
-        raw.push((id.clone(), depth_offset, center_along, original_height));
+        if depth_offset < 1e-3 {
+            // First-level subtree root in the rotated frame.
+            first_level_min_y = first_level_min_y.min(center_along - original_height / 2.0);
+            first_level_max_y = first_level_max_y.max(center_along + original_height / 2.0);
+        }
+        raw.push((id.clone(), depth_offset, center_along));
     }
 
     if raw.is_empty() {
         return Vec::new();
     }
-    let mid = (min_center_y + max_center_y) / 2.0;
+    let mid = if first_level_min_y == f32::MAX {
+        0.0
+    } else {
+        (first_level_min_y + first_level_max_y) / 2.0
+    };
     raw.into_iter()
-        .map(|(id, dx, cy, _h)| (id, dx, cy - mid))
+        .map(|(id, dx, cy)| (id, dx, cy - mid))
         .collect()
 }
 
