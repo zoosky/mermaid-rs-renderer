@@ -6716,6 +6716,26 @@ A["foo & bar"] & B --> C"#;
     }
 
     #[test]
+    fn indent_sensitive_diagrams_skip_yaml_frontmatter() {
+        for input in [
+            "---\ntitle: Hidden\n---\nmindmap\n  root\n    Child",
+            "---\ntitle: Hidden\n---\nkanban\n  Todo\n    [Task]",
+            "---\ntitle: Hidden\n---\ntreemap-beta\n  Root\n    Leaf: 1",
+        ] {
+            let parsed = parse_mermaid(input).unwrap();
+            assert!(
+                parsed.graph.nodes.values().all(|node| {
+                    !node.id.contains("Hidden")
+                        && !node.id.contains("title:")
+                        && !node.label.contains("Hidden")
+                        && !node.label.contains("title:")
+                }),
+                "frontmatter leaked into parsed nodes for {input:?}"
+            );
+        }
+    }
+
+    #[test]
     fn parse_journey_basic() {
         let input = "journey\n  title My Journey\n  section Start\n    Step one: 5: Alice\n    Step two: 3: Alice, Bob";
         let parsed = parse_mermaid(input).unwrap();
