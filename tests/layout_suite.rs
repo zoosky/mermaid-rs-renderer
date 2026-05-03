@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use mermaid_rs_renderer::layout::{DiagramData, validate_layout_invariants};
-use mermaid_rs_renderer::{Layout, LayoutConfig, Theme, compute_layout, parse_mermaid, render_svg};
+use mermaid_rs_renderer::{
+    Direction, Layout, LayoutConfig, Theme, compute_layout, parse_mermaid, render_svg,
+};
 
 fn assert_valid_svg(svg: &str, fixture: &str) {
     assert!(svg.contains("<svg"), "{fixture}: missing <svg tag");
@@ -457,6 +459,46 @@ fn timeline_event_descriptions_wrap_inside_cards() {
     let svg = render_svg(&layout, &theme, &config);
     assert!(!svg.contains(">Electricity, Internal combustion engine, Mass production</text>"));
     assert!(svg.contains(">power</tspan>"));
+}
+
+#[test]
+fn timeline_direction_headers_and_config_default() {
+    let input = "timeline TD\n  title History\n  2020 : Launch\n  2021 : Growth\n  2022 : Scale";
+    let parsed = parse_mermaid(input).unwrap();
+    let theme = Theme::modern();
+    let config = LayoutConfig::default();
+    let layout = compute_layout(&parsed.graph, &theme, &config);
+    let DiagramData::Timeline(timeline) = &layout.diagram else {
+        panic!("expected timeline layout");
+    };
+    assert_eq!(timeline.direction, Direction::TopDown);
+    assert_eq!(timeline.line_start_x, timeline.line_end_x);
+    assert!(timeline.line_end_y > timeline.line_start_y);
+    assert!(timeline.height > timeline.width);
+    assert!(timeline.events.windows(2).all(|pair| pair[0].y < pair[1].y));
+
+    let input = "timeline\n  2020 : Launch\n  2021 : Growth\n  2022 : Scale";
+    let parsed = parse_mermaid(input).unwrap();
+    assert_eq!(parsed.graph.timeline.direction, None);
+    let mut config = LayoutConfig::default();
+    config.timeline.direction = "TD".to_string();
+    let layout = compute_layout(&parsed.graph, &theme, &config);
+    let DiagramData::Timeline(timeline) = &layout.diagram else {
+        panic!("expected timeline layout");
+    };
+    assert_eq!(timeline.direction, Direction::TopDown);
+    assert!(timeline.height > timeline.width);
+
+    let input = "timeline LR\n  2020 : Launch\n  2021 : Growth\n  2022 : Scale";
+    let parsed = parse_mermaid(input).unwrap();
+    let layout = compute_layout(&parsed.graph, &theme, &config);
+    let DiagramData::Timeline(timeline) = &layout.diagram else {
+        panic!("expected timeline layout");
+    };
+    assert_eq!(timeline.direction, Direction::LeftRight);
+    assert_eq!(timeline.line_start_y, timeline.line_end_y);
+    assert!(timeline.line_end_x > timeline.line_start_x);
+    assert!(timeline.width > timeline.height);
 }
 
 #[test]

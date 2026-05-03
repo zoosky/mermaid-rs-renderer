@@ -753,6 +753,20 @@ pub struct LayoutConfig {
     pub pie: PieConfig,
     pub treemap: TreemapConfig,
     pub flowchart: FlowchartLayoutConfig,
+    pub timeline: TimelineConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimelineConfig {
+    pub direction: String,
+}
+
+impl Default for TimelineConfig {
+    fn default() -> Self {
+        Self {
+            direction: "LR".to_string(),
+        }
+    }
 }
 
 impl Default for LayoutConfig {
@@ -773,6 +787,7 @@ impl Default for LayoutConfig {
             pie: PieConfig::default(),
             treemap: TreemapConfig::default(),
             flowchart: FlowchartLayoutConfig::default(),
+            timeline: TimelineConfig::default(),
         }
     }
 }
@@ -1449,6 +1464,12 @@ struct TreemapConfigFile {
     icon_ty: Option<f32>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct TimelineConfigFile {
+    direction: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ConfigFile {
@@ -1463,6 +1484,7 @@ struct ConfigFile {
     gitgraph: Option<GitGraphConfigFile>,
     c4: Option<C4ConfigFile>,
     treemap: Option<TreemapConfigFile>,
+    timeline: Option<TimelineConfigFile>,
 }
 
 pub fn load_config(path: Option<&Path>) -> anyhow::Result<Config> {
@@ -1818,6 +1840,13 @@ pub fn load_config(path: Option<&Path>) -> anyhow::Result<Config> {
                 config.layout.flowchart.objective.backedge_cross_weight = v;
             }
         }
+    }
+
+    if let Some(timeline) = parsed.timeline
+        && let Some(direction) = timeline.direction.as_deref()
+        && crate::ir::Direction::from_timeline_token(direction).is_some()
+    {
+        config.layout.timeline.direction = direction.to_ascii_uppercase();
     }
 
     if let Some(pie) = parsed.pie {
@@ -2809,5 +2838,14 @@ mod tests {
         );
         assert_eq!(mindmap.root_fill, Some("#444444".to_string()));
         assert_eq!(mindmap.root_text, Some("#555555".to_string()));
+    }
+
+    #[test]
+    fn timeline_config_accepts_direction() {
+        let parsed: ConfigFile = serde_json::from_str(r#"{"timeline":{"direction":"TD"}}"#)
+            .expect("timeline config should parse");
+        let timeline = parsed.timeline.expect("timeline config");
+
+        assert_eq!(timeline.direction.as_deref(), Some("TD"));
     }
 }

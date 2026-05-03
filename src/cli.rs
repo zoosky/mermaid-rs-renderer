@@ -1,4 +1,5 @@
 use crate::config::{Config, load_config};
+use crate::ir::Direction;
 use crate::layout::compute_layout_with_metrics;
 use crate::layout_dump::write_layout_dump;
 use crate::parser::parse_mermaid;
@@ -503,6 +504,18 @@ sequenceDiagram
         let merged = merge_init_config(config, init);
         assert_eq!(merged.layout.preferred_aspect_ratio, Some(16.0 / 9.0));
     }
+
+    #[test]
+    fn merge_init_config_updates_timeline_direction() {
+        let config = Config::default();
+        let init = json!({
+            "timeline": {
+                "direction": "TD"
+            }
+        });
+        let merged = merge_init_config(config, init);
+        assert_eq!(merged.layout.timeline.direction, "TD");
+    }
 }
 
 fn merge_init_config(mut config: Config, init: serde_json::Value) -> Config {
@@ -719,6 +732,14 @@ fn merge_init_config(mut config: Config, init: serde_json::Value) -> Config {
         if let Some(val) = flowchart.get("portSideBias").and_then(|v| v.as_f64()) {
             config.layout.flowchart.port_side_bias = val as f32;
         }
+    }
+    if let Some(direction) = init
+        .get("timeline")
+        .and_then(|timeline| timeline.get("direction"))
+        .and_then(|v| v.as_str())
+        && Direction::from_timeline_token(direction).is_some()
+    {
+        config.layout.timeline.direction = direction.to_ascii_uppercase();
     }
     if let Some(gitgraph) = init.get("gitGraph") {
         let mut commit_step_set = false;
