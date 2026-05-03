@@ -502,6 +502,36 @@ fn timeline_direction_headers_and_config_default() {
 }
 
 #[test]
+fn timeline_vertical_cards_adapt_width_and_height() {
+    let input = r#"timeline TD
+  Short : A
+  Long : This vertical card should expand beyond the minimum width while remaining capped by the maximum width even with multiple words and wrap if needed
+"#;
+    let parsed = parse_mermaid(input).unwrap();
+    let theme = Theme::modern();
+    let config = LayoutConfig::default();
+    let layout = compute_layout(&parsed.graph, &theme, &config);
+    let DiagramData::Timeline(timeline) = &layout.diagram else {
+        panic!("expected timeline layout");
+    };
+
+    let short = &timeline.events[0];
+    let long = &timeline.events[1];
+    assert_eq!(short.width, 120.0);
+    assert!(
+        short.height < 80.0,
+        "short card height was {}",
+        short.height
+    );
+    assert!(long.width > 120.0, "long card width was {}", long.width);
+    assert!(long.width <= 360.0, "long card width was {}", long.width);
+    assert!(long.height > 80.0, "long card height was {}", long.height);
+
+    let svg = render_svg(&layout, &theme, &config);
+    assert!(svg.contains("text-anchor=\"start\""));
+}
+
+#[test]
 fn pie_outside_labels_do_not_intrude_into_right_legend() {
     let input = r#"pie
 "Dogs" : 386
