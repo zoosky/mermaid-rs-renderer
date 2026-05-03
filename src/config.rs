@@ -1467,7 +1467,7 @@ struct TreemapConfigFile {
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct TimelineConfigFile {
-    direction: Option<String>,
+    default_direction: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1843,7 +1843,7 @@ pub fn load_config(path: Option<&Path>) -> anyhow::Result<Config> {
     }
 
     if let Some(timeline) = parsed.timeline
-        && let Some(direction) = timeline.direction.as_deref()
+        && let Some(direction) = timeline.default_direction.as_deref()
     {
         config.layout.timeline.direction = direction.to_ascii_uppercase();
     }
@@ -2840,11 +2840,11 @@ mod tests {
     }
 
     #[test]
-    fn timeline_config_accepts_direction() {
-        let parsed: ConfigFile = serde_json::from_str(r#"{"timeline":{"direction":"TD"}}"#)
+    fn timeline_config_accepts_default_direction() {
+        let parsed: ConfigFile = serde_json::from_str(r#"{"timeline":{"defaultDirection":"TD"}}"#)
             .expect("timeline config should parse");
         let timeline = parsed.timeline.expect("timeline config");
 
-        assert_eq!(timeline.direction.as_deref(), Some("TD"));
+        assert_eq!(timeline.default_direction.as_deref(), Some("TD"));
     }
 }

@@ -505,11 +505,11 @@ sequenceDiagram
     }
 
     #[test]
-    fn merge_init_config_updates_timeline_direction() {
+    fn merge_init_config_updates_timeline_default_direction() {
         let config = Config::default();
         let init = json!({
             "timeline": {
-                "direction": "TD"
+                "defaultDirection": "TD"
             }
         });
         let merged = merge_init_config(config, init);
@@ -734,7 +734,7 @@ fn merge_init_config(mut config: Config, init: serde_json::Value) -> Config {
     }
     if let Some(direction) = init
         .get("timeline")
-        .and_then(|timeline| timeline.get("direction"))
+        .and_then(|timeline| timeline.get("defaultDirection"))
         .and_then(|v| v.as_str())
     {
         config.layout.timeline.direction = direction.to_ascii_uppercase();
