@@ -1844,7 +1844,6 @@ pub fn load_config(path: Option<&Path>) -> anyhow::Result<Config> {
 
     if let Some(timeline) = parsed.timeline
         && let Some(direction) = timeline.direction.as_deref()
-        && crate::ir::Direction::from_timeline_token(direction).is_some()
     {
         config.layout.timeline.direction = direction.to_ascii_uppercase();
     }

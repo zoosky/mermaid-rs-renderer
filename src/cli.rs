@@ -1,5 +1,4 @@
 use crate::config::{Config, load_config};
-use crate::ir::Direction;
 use crate::layout::compute_layout_with_metrics;
 use crate::layout_dump::write_layout_dump;
 use crate::parser::parse_mermaid;
@@ -737,7 +736,6 @@ fn merge_init_config(mut config: Config, init: serde_json::Value) -> Config {
         .get("timeline")
         .and_then(|timeline| timeline.get("direction"))
         .and_then(|v| v.as_str())
-        && Direction::from_timeline_token(direction).is_some()
     {
         config.layout.timeline.direction = direction.to_ascii_uppercase();
     }
