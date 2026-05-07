@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use ttf_parser::{Face, GlyphId};
 
+use crate::unicode_width::{Cluster, consume_cluster, is_cjk_wide_char};
+
 static TEXT_MEASURER: Lazy<Mutex<TextMeasurer>> = Lazy::new(|| Mutex::new(TextMeasurer::new()));
 const FONT_CACHE_VERSION: &str = "v2-font-family-case";
 
@@ -199,11 +201,31 @@ impl FontFace {
         let face = Face::parse(&self.data, self.index).ok()?;
         let scale = font_size / self.units_per_em as f32;
         let mut width = 0.0f32;
+        let chars: Vec<char> = text.chars().collect();
+        let mut idx = 0usize;
 
-        for ch in text.chars() {
+        while idx < chars.len() {
+            let ch = chars[idx];
             if ch == '\n' {
+                idx += 1;
                 continue;
             }
+
+            // Mirror fallback_text_width grapheme-cluster handling so both
+            // measurement paths agree on widths for CJK ideographs, kana,
+            // hangul, fullwidth chars, and emoji sequences. The OS will
+            // render these via system font fallback (e.g. PingFang on iOS)
+            // at roughly 1em even when the loaded face has no glyph for
+            // them — using 0.56em here under-measures CJK by ~44%.
+            if let Some((kind, new_idx)) = consume_cluster(&chars, idx) {
+                width += match kind {
+                    Cluster::Wide => font_size,
+                    Cluster::ZeroWidth => 0.0,
+                };
+                idx = new_idx;
+                continue;
+            }
+
             let glyph = if let Some(cached) = self.glyph_cache.get(&ch) {
                 *cached
             } else {
@@ -212,19 +234,21 @@ impl FontFace {
                 glyph
             };
 
-            let Some(glyph_id) = glyph else {
-                width += fallback;
-                continue;
-            };
-
-            let advance = if let Some(value) = self.advance_cache.get(&glyph_id) {
-                *value
+            if let Some(glyph_id) = glyph {
+                let advance = if let Some(value) = self.advance_cache.get(&glyph_id) {
+                    *value
+                } else {
+                    let value = face.glyph_hor_advance(GlyphId(glyph_id)).unwrap_or(0);
+                    self.advance_cache.insert(glyph_id, value);
+                    value
+                };
+                width += advance as f32 * scale;
+            } else if is_cjk_wide_char(ch) {
+                width += font_size;
             } else {
-                let value = face.glyph_hor_advance(GlyphId(glyph_id)).unwrap_or(0);
-                self.advance_cache.insert(glyph_id, value);
-                value
-            };
-            width += advance as f32 * scale;
+                width += fallback;
+            }
+            idx += 1;
         }
 
         Some(width.max(0.0))
@@ -259,6 +283,16 @@ fn cache_paths(family_key: &str) -> Option<(PathBuf, PathBuf)> {
     let font_path = dir.join(format!("{hash:x}.font"));
     let meta_path = dir.join(format!("{hash:x}.meta"));
     Some((font_path, meta_path))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn measure_empty_text_is_zero() {
+        assert_eq!(measure_text_width("", 16.0, "sans-serif"), Some(0.0));
+    }
 }
 
 fn load_cached_face(family_key: &str) -> Option<FontFace> {

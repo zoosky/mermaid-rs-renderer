@@ -1,6 +1,7 @@
 use crate::config::LayoutConfig;
 use crate::text_metrics;
 use crate::theme::Theme;
+use crate::unicode_width::{Cluster, consume_cluster, is_cjk_wide_char};
 
 use super::TextBlock;
 
@@ -144,6 +145,7 @@ pub(super) fn char_width_factor(ch: char) -> f32 {
         '8' => 0.611,
         '9' => 0.595,
         '@' | '#' | '%' | '&' => 0.946,
+        _ if is_cjk_wide_char(ch) => 1.0,
         _ => 0.568,
     }
 }
@@ -421,7 +423,22 @@ pub(super) fn text_width(text: &str, font_size: f32, font_family: &str, fast_met
 }
 
 fn fallback_text_width(text: &str, font_size: f32) -> f32 {
-    text.chars().map(char_width_factor).sum::<f32>() * font_size
+    let chars: Vec<char> = text.chars().collect();
+    let mut width = 0.0;
+    let mut idx = 0usize;
+    while idx < chars.len() {
+        if let Some((kind, new_idx)) = consume_cluster(&chars, idx) {
+            width += match kind {
+                Cluster::Wide => 1.0,
+                Cluster::ZeroWidth => 0.0,
+            };
+            idx = new_idx;
+            continue;
+        }
+        width += char_width_factor(chars[idx]);
+        idx += 1;
+    }
+    width * font_size
 }
 
 fn average_char_width(font_family: &str, font_size: f32, fast_metrics: bool) -> f32 {
@@ -461,6 +478,35 @@ mod tests {
     fn char_width_factor_returns_positive_values() {
         for ch in ['a', 'Z', ' ', '0', '@', '\u{4e2d}'] {
             assert!(char_width_factor(ch) > 0.0, "char {:?} has zero width", ch);
+        }
+    }
+
+    #[test]
+    fn char_width_factor_treats_cjk_as_wide() {
+        for ch in ['中', 'あ', '한', '。', 'Ａ'] {
+            assert_eq!(char_width_factor(ch), 1.0, "char {:?} should be wide", ch);
+        }
+    }
+
+    #[test]
+    fn fallback_text_width_treats_emoji_as_one_em() {
+        for text in ["🙂", "🚀", "☀", "❤"] {
+            assert_eq!(
+                fallback_text_width(text, 16.0),
+                16.0,
+                "{text} should be 1em via fallback_text_width"
+            );
+        }
+    }
+
+    #[test]
+    fn fallback_text_width_counts_emoji_sequences_as_single_wide_glyphs() {
+        for text in ["👍🏽", "👨‍👩‍👧‍👦", "🇨🇳", "1️⃣"] {
+            assert_eq!(
+                fallback_text_width(text, 16.0),
+                16.0,
+                "{text} should be 1em"
+            );
         }
     }
 
