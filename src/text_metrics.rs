@@ -285,16 +285,6 @@ fn cache_paths(family_key: &str) -> Option<(PathBuf, PathBuf)> {
     Some((font_path, meta_path))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn measure_empty_text_is_zero() {
-        assert_eq!(measure_text_width("", 16.0, "sans-serif"), Some(0.0));
-    }
-}
-
 fn load_cached_face(family_key: &str) -> Option<FontFace> {
     let (font_path, meta_path) = cache_paths(family_key)?;
     if !font_path.exists() || !meta_path.exists() {
@@ -325,6 +315,11 @@ mod tests {
             stretch: Stretch::Normal,
             monospaced: false,
         });
+    }
+
+    #[test]
+    fn measure_empty_text_is_zero() {
+        assert_eq!(measure_text_width("", 16.0, "sans-serif"), Some(0.0));
     }
 
     #[test]
